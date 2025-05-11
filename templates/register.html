@@ -1,0 +1,115 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register Instagram Account</title>
+    <link rel="shortcut icon" href="{% static 'images/favicon.png' %}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="{% static 'css/register.css' %}">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-indigo-50 font-inter">
+    {% include 'header/header.html' %}
+
+    <div class="container mx-auto px-4 py-6">
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-6">Register Instagram Account</h1>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Registration Form -->
+                <div class="registration-form">
+                    <form id="myForm" class="space-y-4">
+                        <div class="form-group">
+                            <label for="username" class="block text-sm font-medium text-gray-700 mb-2">
+                                Username
+                                <i class="fas fa-question-circle text-indigo-500 ml-1" data-toggle="tooltip" data-placement="top" title="Example: your_username"></i>
+                            </label>
+                            <input type="text" class="form-control" id="username" name="username" placeholder="Enter your username">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="password" class="block text-sm font-medium text-gray-700 mb-2">
+                                Password
+                                <i class="fas fa-question-circle text-indigo-500 ml-1" data-toggle="tooltip" data-placement="top" title="Example: your_password123"></i>
+                            </label>
+                            <input type="password" class="form-control" id="password" name="password" placeholder="Enter your password">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="code" class="block text-sm font-medium text-gray-700 mb-2">
+                                Instagram Code
+                                <i class="fas fa-question-circle text-indigo-500 ml-1" data-toggle="tooltip" data-placement="top" title="Enter the code sent to your email if available"></i>
+                            </label>
+                            <p class="text-red-600 font-medium mb-2">If you have it enter it and if you don't, log in without it and check your email. After that, log in with that code again.</p>
+                            <input type="text" class="form-control" id="code" name="code" placeholder="Enter the code (if any)">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="twostep" class="block text-sm font-medium text-gray-700 mb-2">
+                                Instagram TwoStep (2FA)
+                                <i class="fas fa-question-circle text-indigo-500 ml-1" data-toggle="tooltip" data-placement="top" title="Enter the code sent to your email if available"></i>
+                            </label>
+                            <p class="text-red-600 font-medium mb-2">Two step code</p>
+                            <input type="text" class="form-control" id="twostep" name="twostep" placeholder="Enter the two step code (if any)">
+                        </div>
+
+                        <div class="form-group">
+                            <label for="description" class="block text-sm font-medium text-gray-700 mb-2">
+                                Description
+                                <i class="fas fa-question-circle text-indigo-500 ml-1" data-toggle="tooltip" data-placement="top" title="Example: I'm a blogger who posts about politics in uk."></i>
+                            </label>
+                            <textarea class="form-control" id="description" name="description" placeholder="Enter a description"></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="hashtags" class="block text-sm font-medium text-gray-700 mb-2">
+                                Hashtags
+                                <i class="fas fa-question-circle text-indigo-500 ml-1" data-toggle="tooltip" data-placement="top" title="Example: Add relevant hashtags."></i>
+                            </label>
+                            <textarea class="form-control" id="hashtags" name="hashtags" placeholder="Enter hashtags"></textarea>
+                        </div>
+
+                        <div class="flex items-center gap-4">
+                            <button type="button" class="btn btn-primary flex-1" onclick="register()">
+                                <i class="fas fa-user-plus mr-2"></i>Register
+                            </button>
+                            <div id="loadingSpinner" class="spinner-border text-primary" role="status" style="display: none;">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Session List -->
+                <div class="session-list">
+                    <h2 class="text-xl font-semibold text-gray-800 mb-4">Registration Status</h2>
+                    <p class="text-gray-600 mb-6">{{ message }}</p>
+
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <h3 class="text-lg font-medium text-gray-800 mb-4">Session List</h3>
+                        
+                        <div id="loadingProgress" class="progress mb-4" style="display: none;">
+                            <div id="progressBarFill" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar"></div>
+                        </div>
+
+                        <div class="list-group">
+                            <ul id="sessionData" class="space-y-2"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.2.1.slim.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.min.js"></script>
+    <script src="{% static 'js/register.js' %}"></script>
+</body>
+</html>

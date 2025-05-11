@@ -1,0 +1,76 @@
+version: "3"
+services:
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./redis.conf:/data/redis.conf
+    command: ["redis-server", "/data/redis.conf"]
+    restart: always
+    networks:
+      - app-network
+
+  mongo:
+     image: mongo
+     container_name: my-mongo
+     restart: always
+     env_file:
+       - dockercredentials.env
+     ports:
+       - "27017:27017"
+     volumes:
+       - mongo_data:/data/db
+     networks:
+       - app-network
+
+  minio:
+    image: minio/minio
+    env_file:
+      - dockercredentials.env
+    command: server /data --console-address ":9001"
+    ports:
+      - "9022:9000"
+      - "9020:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - app-network
+
+  django:
+    build: .
+    container_name: django-docker
+    ports:
+      - "8025:8000"
+    env_file:
+      - dockercredentials.env
+    depends_on:
+      - redis
+      - mongo
+      - minio
+    volumes:
+      - /tmp:/tmp
+    networks:
+      - app-network
+
+  celery:
+    build:
+      context: .
+    command: celery -A Django worker --loglevel=info
+    env_file:
+      - dockercredentials.env
+    depends_on:
+      - redis
+      - django
+    volumes:
+      - /tmp:/tmp
+    networks:
+      - app-network
+
+volumes:
+  mongo_data:
+  minio_data:
+
+networks:
+  app-network:
+    driver: bridge

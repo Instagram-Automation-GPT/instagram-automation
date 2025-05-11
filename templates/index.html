@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Content creator & publisher</title>
+    <link rel="shortcut icon" href="{% static 'images/favicon.png' %}">
+    <link rel="stylesheet" href="{% static 'css/main.css' %}">
+    <style>
+        /* CSS for modal */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.5);
+        }
+
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 80%;
+        }
+
+        .close {
+            color: #aaaaaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .close:hover,
+        .close:focus {
+            color: #000;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        /* Style for the client list */
+        #clientList {
+            position: fixed;
+            top: 10px; /* Adjust top position as needed */
+            right: 10px; /* Adjust right position as needed */
+            border: 1px solid #ccc;
+            padding: 10px;
+            max-height: 300px; /* Add a max height if needed */
+            overflow-y: auto; /* Enable vertical scrolling */
+        }
+
+        #clientList ul {
+            list-style-type: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        #clientList li {
+            cursor: pointer;
+            padding: 5px;
+        }
+
+        #clientList li:hover {
+            background-color: #f0f0f0;
+        }
+        /* Style for aligning checkbox and username */
+        label {
+            display: flex;
+            align-items: center;
+        }
+
+        /* Add margin between checkbox and username */
+        label input[type="checkbox"] {
+            margin-right: 10px;
+        }
+
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="page-header">Content creator & publisher</h1>
+        
+        <div class="card">
+            <div class="form-section">
+                <div class="form-section-title">Upload Image</div>
+                <input type="file" id="photo" accept="image/*" class="file-input">
+                <button type="button" class="btn" onclick="openAiImageFinder()">AI Image Finder</button>
+                
+                <div class="checkbox-container">
+                    <input type="checkbox" id="preCreatedCheckBox" name="preference" value="pre-created">
+                    <label for="preCreatedCheckBox">Use pre-created image</label>
+                </div>
+                <input type="file" id="pre-created-photo" accept="image/*" class="file-input">
+            </div>
+            
+            <div class="form-section">
+                <label for="text" class="form-section-title">Text:</label>
+                <textarea id="text" rows="4" cols="50" style="color: black; font-family: Arial;"></textarea>
+                <button type="button" class="btn" onclick="uploadImage()">Upload</button>
+            </div>
+
+            <!-- New label to display response body -->
+            <label id="responseLabel" style="float:right;"></label>
+        </div>
+
+        <!-- Container to display images -->
+        <div class="card">
+            <div class="form-section-title">Generated Images</div>
+            <div id="imageContainer"></div>
+        </div>
+        
+        <div class="card">
+            <div class="form-section-title">Publish Options</div>
+            <form id="preferenceForm">
+                <div class="checkbox-container">
+                    <input type="checkbox" id="storyCheckbox" name="preference" value="story">
+                    <label for="storyCheckbox">Story</label>
+                </div>
+                
+                <div class="checkbox-container">
+                    <input type="checkbox" id="postCheckbox" name="preference" value="post">
+                    <label for="postCheckbox">Post</label>
+                </div>
+                
+                <div class="form-section">
+                    <label for="caption">Caption:</label>
+                    <input type="text" id="caption">
+                </div>
+            </form>
+
+            <div class="form-section">
+                <label for="scrollInput">Choose publish gap between 3 and 20 seconds:</label>
+                <input type="number" id="scrollInput" name="scrollInput" min="3" max="20">
+                <button type="button" class="btn btn-secondary" onclick="publishImage()">Publish</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- AI Image Finder Modal -->
+    <div id="aiImageFinderModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeAiImageFinder()">&times;</span>
+            <div class="form-section">
+                <input type="text" id="aiImageSearchInput">
+                <button onclick="searchAiImages()" class="btn">Find</button>
+            </div>
+            <div id="findimageContainer"></div>
+            <button onclick="sendSelectedImage()" class="btn btn-secondary">Send Selected Image</button>
+        </div>
+    </div>
+
+    <!-- Client List -->
+    <div id="clientList">
+        <h2>Client List</h2>
+        <ul id="clientListItems"></ul>
+        <button id="showUsernameButton" class="btn">Show Selected Client's Username</button>
+    </div>
+
+    <script>
+
+
+        function loadClientList() {
+            fetch('/clients/')
+                .then(response => response.json())
+                .then(data => {
+                    const clientList = document.getElementById('clientListItems');
+                    data = data.message;
+                    data.forEach(client => {
+                        const listItem = document.createElement('li');
+                        const label = document.createElement('label');
+                        const checkbox = document.createElement('input');
+                        checkbox.type = 'checkbox';
+                        checkbox.value = client; // Assuming 'username' is the property name
+                        label.appendChild(checkbox);
+                        label.appendChild(document.createTextNode(client));
+                        listItem.appendChild(label);
+                        clientList.appendChild(listItem);
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching client list:', error);
+                });
+        }
+
+        // Function to log the selected client's username when the button is clicked
+        document.getElementById('showUsernameButton').addEventListener('click', () => {
+        const checkboxes = document.querySelectorAll('#clientListItems input[type="checkbox"]:checked');
+        if (checkboxes.length > 0) {
+            const selectedUsernames = Array.from(checkboxes).map(checkbox => checkbox.value);
+            console.log('Selected clients\' usernames:', selectedUsernames.join(', '));
+        } else {
+            console.log('No clients selected.');
+        }
+        });
+
+        // Call the function to load the client list when the page loads
+        window.onload = loadClientList;
+
+        // Get the checkbox and caption input elements
+        const postCheckbox = document.getElementById('postCheckbox');
+        const captionInput = document.getElementById('caption');
+
+          // Function to enable/disable caption input based on checkbox status
+        function toggleCaption() {
+            if (postCheckbox.checked) {
+              captionInput.disabled = false;
+            } else {
+              captionInput.disabled = true;
+            }
+          }
+
+          // Add event listener to checkbox to toggle caption input
+        postCheckbox.addEventListener('change', toggleCaption);
+
+          // Call the function initially to set the initial state
+        toggleCaption();
+
+
+        // Get the checkbox and caption input elements
+        const preCreatedCheckbox = document.getElementById('preCreatedCheckBox');
+        const preCreatedButton = document.getElementById('preCreatedButton');
+        const preCreatedInput = document.getElementById('pre-created-photo');
+
+          // Function to enable/disable caption input based on checkbox status
+        function togglePreCreated() {
+            if (preCreatedCheckbox.checked) {
+              preCreatedButton.disabled = false;
+              preCreatedInput.disabled = false;
+            } else {
+              preCreatedButton.disabled = true;
+              preCreatedInput.disabled = true;
+            }
+          }
+
+          // Add event listener to checkbox to toggle caption input
+        preCreatedCheckbox.addEventListener('change', togglePreCreated);
+
+          // Call the function initially to set the initial state
+        togglePreCreated();
+
+
+
+
+        // Function to open AI Image Finder modal
+        function openAiImageFinder() {
+            document.getElementById('aiImageFinderModal').style.display = "block";
+        }
+
+        // Function to close AI Image Finder modal
+        function closeAiImageFinder() {
+            document.getElementById('aiImageFinderModal').style.display = "none";
+        }
+
+        function searchAiImages() {
+            var key_words = document.getElementById('aiImageSearchInput').value;
+            var apiUrl = "/find_image/" + key_words.replace(' ', "+");
+
+            fetch(apiUrl, {
+                    method: 'GET',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Handle the response data here, such as displaying the images on the page
+                    var imageContainer = document.getElementById('findimageContainer');
+                    imageContainer.innerHTML = ""; // Clear previous images
+                    data.image_urls.forEach(url => {
+                        var img = document.createElement('img');
+                        img.src = url;
+                        img.style.width = "100px"; // Set width as per your requirement
+                        img.style.height = "auto"; // Maintain aspect ratio
+
+                        // Add event listener for image selection
+                        img.addEventListener('click', function() {
+                            // Remove selection from previously selected image
+                            var previouslySelected = document.querySelector('.selected');
+                            if (previouslySelected) {
+                                previouslySelected.classList.remove('selected');
+                            }
+
+                            // Select the clicked image
+                            img.classList.add('selected');
+                            selectedImageUrl = img.src;
+                        });
+
+                        imageContainer.appendChild(img);
+                    });
+                })
+                .catch(error => {
+                    // Handle any errors that occur during the fetch request
+                    alert("Failed to search for AI images. Error: " + error.message);
+                });
+        }
+        var selectedImageUrl = "";
+        function sendSelectedImage() {
+            if (selectedImageUrl !== "") {
+                // Create a FormData object
+                var formData = new FormData();
+                var csrftoken = getCookie('csrftoken');
+                // Get the text value
+                var text = document.getElementById('text').value;
+                var image_name = document.getElementById('aiImageSearchInput').value;
+
+                // Create a blob from the selected image URL
+                fetch(selectedImageUrl)
+                    .then(response => response.blob())
+                    .then(blob => {
+                        // Create a new File object with the blob and specify the name and extension
+                        const fileName = image_name + ".jpg"; // Change the file name and extension as needed
+                        const file = new File([blob], fileName, { type: blob.type });
+
+                        // Append the file to the FormData object
+                        formData.append('photo', file);
+                        formData.append('text', text);
+
+                        // Make a POST request to the desired URL with the FormData as the body
+                        fetch('/upload_photo/', {
+                            method: 'POST',
+                            headers: {
+                                'X-CSRFToken': csrftoken
+                            },
+                            body: formData
+                        })
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Network response was not ok');
+                            }
+                             return response.json();
+
+                        })
+                        .then(data => {
+                            // Display response body in the label
+                            document.getElementById('responseLabel').innerText = JSON.stringify(data);
+
+                            var imageContainer = document.getElementById('imageContainer');
+                            // Clear previous images
+                            imageContainer.innerHTML = '';
+
+                            // Display images
+
+                            const arr = Array.from(data.message);
+
+                            // Loop through the image URLs and create image elements
+                            arr.forEach(url => {
+                                var img = createImage(url);
+                                imageContainer.appendChild(img);
+                            });
+                            //return data.text();
+                        })
+
+                    })
+                    .catch(error => {
+                        // Handle any errors that occur while fetching the image blob
+                        alert("Failed to fetch image blob. Error: " + error.message);
+                    });
+            } else {
+                alert("Please select an image first.");
+            }
+        }
+
+        function applyBold() {
+            var textArea = document.getElementById("text");
+            var selectedText = textArea.value.substring(textArea.selectionStart, textArea.selectionEnd);
+            var textBeforeSelection = textArea.value.substring(0, textArea.selectionStart);
+            var textAfterSelection = textArea.value.substring(textArea.selectionEnd);
+
+            if (selectedText.length > 0) {
+                // Wrap selected text with bold tags
+                textArea.value = textBeforeSelection + "<b>" + selectedText + "</b>" + textAfterSelection;
+            } else {
+                // If no text is selected, do nothing
+                return;
+            }
+        }
+
+        function changeFont() {
+            var font = document.getElementById("fontSelector").value;
+            document.getElementById("text").style.fontFamily = font;
+        }
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+        }
+
+        function createImage(url) {
+            var img = document.createElement('img');
+            img.src = "/image/" + url; // Add base URL
+            img.style.width = '200px'; // Adjust image size as needed
+            img.style.height = '200px';
+
+            // Add click event listener to select the image
+            img.addEventListener('click', function() {
+                // Remove any previously selected image border
+                var images = document.querySelectorAll('img');
+                images.forEach(function(img) {
+                    img.style.border = 'none';
+                });
+
+                // Add border to the selected image
+                img.style.border = '2px solid blue';
+                FinalselectedImageUrl = url; // Store the selected image URL
+            });
+
+            return img;
+        }
+
+        var FinalselectedImageUrl = null; // Variable to store the selected image URL
+
+        function uploadImage(mode) {
+
+            var csrftoken = getCookie('csrftoken');
+
+            // Get the selected photo
+            var photo = document.getElementById('photo').files[0];
+            // Check if a photo was selected
+            if (!photo) {
+                alert("Please select an image.");
+                return;
+            }
+
+
+            // Get the text value
+            var text = document.getElementById('text').value;
+
+            // Construct the request body
+            var formData = new FormData();
+            formData.append('photo', photo);
+            formData.append('text', text);
+
+            // Make a POST request using Fetch API
+            fetch('/upload_photo/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': csrftoken
+                },
+                body: formData
+            })
+            .then(response => {
+                // Check if response status is ok
+                if (response.ok) {
+                    // Change label color to green
+                    document.getElementById('responseLabel').style.color = 'green';
+                    return response.json(); // Return the JSON data for further processing
+                } else {
+                    // Change label color to red
+                    document.getElementById('responseLabel').style.color = 'red';
+                    throw new Error('Failed to upload image');
+                }
+            })
+            .then(data => {
+                // Display response body in the label
+                document.getElementById('responseLabel').innerText = JSON.stringify(data);
+
+                var imageContainer = document.getElementById('imageContainer');
+                imageContainer.innerHTML = '';
+
+                const arr = Array.from(data.message);
+
+                // Loop through the image URLs and create image elements
+                arr.forEach(url => {
+                    var img = createImage(url);
+                    imageContainer.appendChild(img);
+                });
+            })
+            .catch(error => {
+                // Handle error
+                console.error('There was a problem with your fetch operation:', error);
+            });
+        }
+
+        function publishImage() {
+            const accounts_checkboxes = document.querySelectorAll('#clientListItems input[type="checkbox"]:checked');
+            var selectedUsernames = [];
+            var inputElement = document.getElementById("scrollInput");
+            var time_gap = inputElement.value;
+            if (accounts_checkboxes.length > 0) {
+                selectedUsernames = Array.from(accounts_checkboxes).map(accounts_checkboxes => accounts_checkboxes.value);
+                console.log('Selected clients\' usernames:', selectedUsernames.join(', '));
+            } 
+            else {
+                console.log('No clients selected.');
+            }
+          
+            const form = document.getElementById('preferenceForm');
+            const checkboxes = form.elements['preference'];
+            const captionInput = document.getElementById('caption');
+            const captionText = captionInput.value;
+            const checkedItems = [];
+            
+            
+            
+            for (let i = 0; i < checkboxes.length; i++) {
+                if (checkboxes[i].checked) {
+                    checkedItems.push(checkboxes[i].value);
+                    }
+            }
+            if (FinalselectedImageUrl) {
+                // Send a POST request with the selected image URL
+                fetch('/publish_story/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: JSON.stringify({ image_url: FinalselectedImageUrl ,types: checkedItems,caption: captionText,accounts: selectedUsernames,time_gap: time_gap})
+                })
+                .then(response => {
+                    if (response.ok) {
+                        alert("Image published successfully!");
+                    } else {
+                        throw new Error('Failed to publish image');
+                    }
+                })
+                .catch(error => {
+                    console.error('There was a problem with publishing the image:', error);
+                });
+            } else {
+                alert("Please select an image to publish.");
+            }
+        }
+
+        function publishPreCreated(){
+
+            const form = document.getElementById('preferenceForm');
+            const checkboxes = form.elements['preference'];
+            const captionInput = document.getElementById('caption');
+            const captionText = captionInput.value;
+            const checkedItems = [];
+            for (let i = 0; i < checkboxes.length; i++) {
+                if (checkboxes[i].checked) {
+                    checkedItems.push(checkboxes[i].value);
+                    }
+            }
+            // Get the selected photo
+            var photo = document.getElementById('pre-created-photo').files[0];
+            // Check if a photo was selected
+            if (!photo) {
+                alert("Please select an image.");
+                return;
+            }
+            var formData = new FormData();
+            formData.append('photo', photo);
+            formData.append('caption', captionText);
+            formData.append('types', checkedItems);
+            formData.append('types', checkedItems);
+            fetch('/publish_created_story/', {
+                    method: 'POST',
+                    headers: {
+                        'X-CSRFToken': getCookie('csrftoken')
+                    },
+                    body: formData
+                })
+                .then(response => {
+                    if (response.ok) {
+                        alert("Image published successfully!");
+                    } else {
+                        throw new Error('Failed to publish image');
+                    }
+                })
+                .catch(error => {
+                    console.error('There was a problem with publishing the image:', error);
+                });
+
+
+        }
+    </script>
+</body>
+</html>

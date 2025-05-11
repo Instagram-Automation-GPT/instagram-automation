@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% load static %}
+
+{% block title %}Queue Manager{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" type="text/css" href="{% static 'css/queue.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-4 py-6 block fixed top-[10%]">
+    <div class="bg-white rounded-xl shadow-lg p-6 mb-6">
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-2xl font-bold text-gray-800">Queue Manager</h1>
+            <button class="btn btn-primary" onclick="refreshQueue()">
+                <i class="fas fa-sync-alt mr-2"></i>Refresh
+            </button>
+        </div>
+        
+        <!-- Queue items will be dynamically inserted here -->
+        <div id="queueList" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <!-- Items will be populated by JavaScript -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="{% static 'js/queue.js' %}"></script>
+{% endblock %}

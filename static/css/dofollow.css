@@ -1,0 +1,180 @@
+/* Global Styles */
+
+
+/* Container Styles */
+.menu-container {
+    display: flex;
+    justify-content: space-around;
+    align-items: center;
+    padding: 10px 20px;
+    background-color: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 1200px;
+    margin-bottom: 20px;
+}
+
+.menu-container a {
+    color: #4f46e5; /* Indigo color */
+    text-decoration: none;
+    font-weight: 500;
+    transition: color 0.3s ease;
+}
+
+.menu-container a:hover {
+    color: #3730a3; /* Darker indigo */
+}
+
+/* Dashboard Main Content */
+.dashboard-main {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 20px;
+    gap: 20px;
+    background-color: #ffffff;
+    border-radius: 20px;
+    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 1500px;
+}
+
+/* Panel Row Styles */
+.panel-row {
+    flex: 1;
+    min-width: 300px;
+    max-width: 100%;
+    background-color: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    padding: 20px;
+    margin-bottom: 20px;
+}
+
+/* Ensure responsiveness */
+@media (max-width: 1200px) {
+    .panel-row {
+        flex: 1 1 100%; /* Full width on smaller screens */
+        max-width: 100%; /* Maximum width is full width */
+    }
+}
+
+/* Heading Styles */
+h2 {
+    font-size: 1.5rem;
+    margin-bottom: 15px;
+    color: #111827;
+}
+
+/* Button Styles */
+.btn {
+    display: inline-block;
+    padding: 10px 20px;
+    font-size: 1rem;
+    font-weight: 600;
+    text-align: center;
+    text-decoration: none;
+    border-radius: 8px;
+    transition: background-color 0.3s ease, transform 0.3s ease;
+}
+
+.btn-primary {
+    background-color: #3b82f6; /* Blue */
+    color: #ffffff;
+}
+
+.btn-primary:hover {
+    background-color: #2563eb; /* Darker blue */
+}
+
+.btn-danger {
+    background-color: #ef4444; /* Red */
+    color: #ffffff;
+}
+
+.btn-danger:hover {
+    background-color: #dc2626; /* Darker red */
+}
+
+.btn-success {
+    background-color: #10b981; /* Green */
+    color: #ffffff;
+}
+
+.btn-success:hover {
+    background-color: #059669; /* Darker green */
+}
+
+/* List Styles */
+.list-group {
+    padding: 10px;
+    background-color: #f3f4f6; /* Light gray */
+    border-radius: 8px;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.list-group-item {
+    background-color: #ffffff;
+    padding: 10px;
+    border: 1px solid #e5e7eb; /* Gray border */
+    border-radius: 4px;
+    margin-bottom: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.list-group-item:hover {
+    background-color: #f9fafb; /* Lighter gray */
+}
+
+/* User Details Styling */
+.user-details {
+    display: flex;
+    flex-direction: column; /* Stack elements vertically */
+    gap: 10px; /* Space between elements */
+    padding: 10px; /* Padding inside the user details */
+    border: 1px solid #ddd; /* Light border */
+    border-radius: 8px; /* Rounded corners */
+    background-color: #fff; /* Background color */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1); /* Subtle shadow */
+    margin-bottom: 15px; /* Space below each user detail */
+}
+
+/* Responsive adjustments for user-details */
+@media (min-width: 576px) {
+    .user-details {
+        flex-direction: row; /* Stack elements horizontally on larger screens */
+        align-items: center; /* Align items vertically center */
+    }
+}
+
+/* Styling for the "Followed-By" button */
+.btn-info {
+    font-size: 0.875rem; /* Smaller font size for better fit */
+    padding: 0.375rem 0.75rem; /* Padding inside the button */
+    display: flex; /* Center icon and text vertically */
+    align-items: center;
+}
+
+/* Responsive adjustments for the button */
+@media (max-width: 576px) {
+    .btn-info {
+        width: 100%; /* Full width on small screens */
+        text-align: center; /* Center text on small screens */
+    }
+}
+
+@media (min-width: 768px) {
+    .btn-info {
+        width: auto; /* Auto width on larger screens */
+    }
+}
+
+/* Ensure button text and icon are aligned properly */
+.btn-info i {
+    margin-right: 5px; /* Space between icon and text */
+}
