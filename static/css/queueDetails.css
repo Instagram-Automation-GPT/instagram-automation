@@ -1,0 +1,104 @@
+/* Base Styles */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f7f9;
+}
+
+.queue-details {
+    max-width: 800px;
+    margin: 20px auto;
+    padding: 20px;
+    border-radius: 10px;
+    background-color: #ffffff;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.queue-details h1 {
+    font-size: 2em;
+    margin-bottom: 20px;
+    color: #333;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 10px;
+}
+
+.queue-details img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    border-radius: 5px;
+    margin-bottom: 20px;
+}
+
+.queue-details p {
+    font-size: 1em;
+    color: #555;
+    margin: 10px 0;
+}
+
+.queue-details span {
+    font-weight: bold;
+    color: #333;
+}
+
+.queue-details h2 {
+    font-size: 1.5em;
+    margin: 20px 0;
+    color: #444;
+    border-bottom: 1px solid #ddd;
+    padding-bottom: 10px;
+}
+
+.accounts {
+    display: flex;
+    flex-direction: column;
+}
+
+.account {
+    border: 1px solid #ddd;
+    border-radius: 5px;
+    padding: 15px;
+    margin-bottom: 10px;
+    background-color: #fafafa;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.account p {
+    margin: 5px 0;
+}
+
+.account p strong {
+    color: #333;
+}
+
+.status.true {
+    color: #4caf50; /* Green */
+}
+
+.status.false {
+    color: #f44336; /* Red */
+}
+
+/* Mobile Styles */
+@media (max-width: 767px) {
+    .queue-details {
+        padding: 15px; /* Added padding for mobile */
+        font-size: 15px; /* Slightly increased font size for better readability */
+        margin: 10px; /* Added margin to provide space from screen edges */
+    }
+
+    .queue-details img {
+        width: 100%;
+        height: auto;
+    }
+
+    .accounts {
+        margin-top: 15px; /* Increased margin for better spacing */
+    }
+
+    .account {
+        padding: 12px; /* Increased padding for better touch experience */
+        font-size: 15px; /* Adjusted font size for better readability */
+    }
+}

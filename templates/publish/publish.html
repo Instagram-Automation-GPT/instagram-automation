@@ -1,0 +1,202 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Content Publisher</title>
+    <link rel="shortcut icon" href="{% static 'images/favicon.png' %}">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" type="text/css" href="{% static 'css/publish.css' %}">
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-indigo-50 font-inter">
+    {% include 'header/header.html' %}
+
+    <div class="container mx-auto px-4 py-6">
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-6">Content Publisher</h1>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Left Column - Content Creation -->
+                <div class="content-creation-section">
+                    <div class="mb-6">
+                        <button type="button" id="aiImageFinderBtn" onclick="openAiImageFinder()" class="btn btn-primary w-full">
+                            <i class="fas fa-search mr-2"></i>Stock Image Finder(royalty free)
+                        </button>
+                    </div>
+
+                    <!-- Preview container with remove button -->
+                    <div class="relative mb-6">
+                        <div id="imagePreviewContainer" class="mb-2 min-h-[100px] border border-dashed border-gray-300 rounded-md flex justify-center items-center p-2"></div>
+                        <button type="button" id="removePreviewBtn" onclick="removePreviewContent()" class="absolute top-2 right-2 bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-md hidden">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+
+                    <div class="pre-created-section mb-6">
+                        <div class="form-check mb-2">
+                            <input type="checkbox" id="preCreatedCheckBox" name="preference" value="pre-created" class="form-check-input">
+                            <label for="preCreatedCheckBox" class="form-check-label font-medium">Use pre-created content</label>
+                        </div>
+                        
+                        <div class="text-xs text-gray-500 mb-3">
+                            Upload your own image/video instead of using Stock images. 
+                            Select this option if you have prepared your content in advance.
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Content File</label>
+                            <input type="file" id="pre-created-photo" accept="image/*,video/*" class="form-control">
+                        </div>
+
+                        <div class="form-check mb-2">
+                            <input type="checkbox" id="coverImageCheckbox" name="preference" value="cover-image" class="form-check-input">
+                            <label for="coverImageCheckbox" class="form-check-label">Use cover image</label>
+                        </div>
+                        
+                        <div class="text-xs text-gray-500 mb-3">
+                            For reels/videos only: Add a cover image that will be shown before the video plays.
+                        </div>
+                        
+                        <div class="mb-4">
+                            <label class="block text-sm font-medium text-gray-700 mb-2">Cover Image</label>
+                            <input type="file" id="pre-created-cover" accept="image/*" class="form-control">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column - Publishing Options -->
+                <div class="publishing-options-section">
+                    <div id="responseLabel" class="mb-4"></div>
+
+                    <div id="imageContainer" class="flex justify-center items-center mb-6">
+                        <div class="spinner-grow" role="status">
+                            <span class="sr-only">Loading...</span>
+                        </div>
+                    </div>
+
+                    <!-- New instructions panel -->
+                    <div class="bg-blue-50 border border-blue-200 rounded-md p-4 mb-4">
+                        <h3 class="text-sm font-semibold text-blue-800 mb-2">Publishing Instructions:</h3>
+                        <ul class="text-xs text-blue-700 list-disc pl-4 space-y-1">
+                            <li><strong>Story</strong>: Caption not required (disabled when only story is selected)</li>
+                            <li><strong>Post</strong>: Caption required and enabled</li>
+                            <li><strong>Reels</strong>: Caption required and enabled</li>
+                            <li><strong>AI Generated Caption</strong>: Works with keywords you provide in the caption box. Enter keywords about your content for the AI to generate a tailored caption.</li>
+                            <li><strong>Remove Content</strong>: Use the red "X" button to remove selected content from preview.</li>
+                        </ul>
+                    </div>
+
+                    <form id="preferenceForm" class="mb-6">
+                        <div class="grid grid-cols-2 gap-4 mb-4">
+                            <div class="form-check">
+                                <input type="checkbox" id="storyCheckbox" name="preference" value="story" class="form-check-input">
+                                <label for="storyCheckbox" class="form-check-label">Story</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" id="postCheckbox" name="preference" value="post" class="form-check-input">
+                                <label for="postCheckbox" class="form-check-label">Post</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" id="reelsCheckbox" name="preference" value="reels" class="form-check-input">
+                                <label for="reelsCheckbox" class="form-check-label">Reels</label>
+                            </div>
+                            <div class="form-check">
+                                <input type="checkbox" id="aiCaption" name="preference" value="aicaption" class="form-check-input">
+                                <label for="aiCaption" class="form-check-label" title="Enter keywords in the caption box for AI to generate content">AI Generated Caption</label>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label for="caption" class="block text-sm font-medium text-gray-700 mb-2">
+                                Caption
+                                <span id="captionHelper" class="text-xs font-normal text-gray-500 ml-2">(Enter text or keywords for AI caption)</span>
+                            </label>
+                            <textarea 
+                                id="caption" 
+                                class="form-control resize-y min-h-[100px] max-h-[300px]"
+                                rows="4"
+                                placeholder="Enter caption text or keywords for AI generation"
+                            ></textarea>
+                        </div>
+
+                        <div class="mb-6">
+                            <label for="scrollInput" class="block text-sm font-medium text-gray-700 mb-2">
+                                Publish Gap (3-20 Minutes)
+                            </label>
+                            <input type="number" id="scrollInput" name="scrollInput" min="3" max="20" class="form-control">
+                        </div>
+
+                        <button type="button" onclick="publishImage()" class="btn btn-primary w-full">
+                            <i class="fas fa-paper-plane mr-2"></i>Publish
+                        </button>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Loading Spinner -->
+            <div class="beforePublishSpinner justify-center mt-6">
+                <div class="spinner-border text-primary publishSpinner" role="status">
+                    <span class="visually-hidden">Loading...</span>
+                </div>
+            </div>
+
+            <!-- Publish Modal -->
+            <div id="publishModal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Select Accounts to Publish</h2>
+                        <span class="close" onclick="closeModal()">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <button id="selectDeselect" onclick="selectDeselect()" class="btn btn-secondary w-full mb-4">
+                            <i class="fas fa-check-square mr-2"></i>Select All
+                        </button>
+                        <div id="data-container" class="data-container"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button id="publishPosts" onclick="confirmPublish()" class="btn btn-primary w-full">
+                            <i class="fas fa-check mr-2"></i>Confirm Publish
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- AI Image Finder Modal -->
+            <div id="aiImageFinderModal" class="modal">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h2 class="modal-title">Stock Image Finder</h2>
+                        <span class="close" onclick="closeAiImageFinder()">&times;</span>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-4">
+                            <input type="text" id="aiImageSearchInput" class="form-control" placeholder="Enter search keywords for royalty-free images">
+                        </div>
+                        <button onclick="searchAiImages()" class="btn btn-primary w-full mb-4">
+                            <i class="fas fa-search mr-2"></i>Search
+                        </button>
+                        <div class="spinner-border centerSpinner" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <div id="findimageContainer" class="image-container"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button onclick="selectImage()" class="btn btn-success w-full">
+                            <i class="fas fa-check mr-2"></i>Select Image
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{% static 'js/publish.js' %}"></script>
+</body>
+</html>

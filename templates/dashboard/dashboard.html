@@ -1,0 +1,124 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Manager</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <!-- FontAwesome CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css" />
+    <!-- Custom CSS -->
+    <link rel="shortcut icon" href="{% static 'images/favicon.png' %}">
+    <link rel="stylesheet" type="text/css" href="{% static 'css/dashboard.css' %}">
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body class="bg-indigo-50 font-inter">
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.11.8/dist/umd/popper.min.js"
+        integrity="sha384-I7E8VVD/ismYTF4hNIPjVp/Zjvgyol6VFvRkX/vR+Vc4jQkC+hVqc2pM8ODewa9r"
+        crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js"
+        integrity="sha384-0pUGZvbkm6XF6gxjEnlmuGrJXVbNuzT9qBBavbLwCsOGabYfZo0T0to5eqruptLy"
+        crossorigin="anonymous"></script>
+
+    <!-- Include Header -->
+    {% include 'header/header.html' %}
+
+    <!-- Page Layout -->
+    <div class="container mx-auto px-4 py-6">
+        <div class="bg-white rounded-xl shadow-lg p-6">
+            <h1 class="text-2xl font-bold text-gray-800 mb-6">Account Manager</h1>
+            
+            <!-- Statistics Section -->
+            <div class="grid grid-cols-1 mb-6">
+                <div class="bg-gray-50 rounded-lg p-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <div id="healthy" class="text-lg font-semibold text-emerald-600"></div>
+                        <div id="unhealthy" class="text-lg font-semibold text-red-600"></div>
+                    </div>
+                    
+                    <div id="progress-bar" class="progress mb-3" style="display: none;">
+                        <div id="progress-bar-fill" class="progress-bar" role="progressbar" aria-valuenow="100"
+                            aria-valuemin="0" aria-valuemax="100"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Accounts List Section -->
+            <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                <div class="data-container max-h-96 overflow-y-auto bg-white p-4 rounded-lg shadow-sm"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal for Editing Account -->
+    <div class="modal fade" id="editModal" tabindex="-1" aria-labelledby="editModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content rounded-lg border-0 shadow-lg">
+                <div class="modal-header border-bottom-0">
+                    <h5 class="modal-title font-bold text-gray-800" id="editModalLabel">Edit Account</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="editForm" enctype="multipart/form-data">
+                        {% csrf_token %}
+                        <div class="mb-4">
+                            <label for="currentUsername" class="form-label text-gray-700">Current Username</label>
+                            <input type="text" class="form-control rounded-lg border-gray-300 bg-gray-50" id="currentUsername"
+                                name="currentUsername" readonly>
+                        </div>
+                        <div class="mb-4">
+                            <label for="newUsername" class="form-label text-gray-700">New Username (optional)</label>
+                            <input type="text" class="form-control rounded-lg border-gray-300" id="newUsername" name="newUsername">
+                            <div class="form-check mt-2">
+                                <input type="checkbox" class="form-check-input" id="usernameChangeTick" disabled>
+                                <label class="form-check-label text-gray-600" for="usernameChangeTick">Change Username</label>
+                            </div>
+                        </div>
+                        <div class="mb-4">
+                            <label for="newFullname" class="form-label text-gray-700">New Full Name (optional)</label>
+                            <input type="text" class="form-control rounded-lg border-gray-300" id="newFullname" name="newFullname">
+                            <div class="form-check mt-2">
+                                <input type="checkbox" class="form-check-input" id="fullnameChangeTick" disabled>
+                                <label class="form-check-label text-gray-600" for="fullnameChangeTick">Change Fullname</label>
+                            </div>
+                        </div>
+                        <div class="mb-4">
+                            <label for="imageUpload" class="form-label text-gray-700">Upload Image (optional)</label>
+                            <input type="file" class="form-control rounded-lg border-gray-300" id="imageUpload" name="image">
+                            <div class="form-check mt-2">
+                                <input type="checkbox" class="form-check-input" id="imageChangeTick" disabled>
+                                <label class="form-check-label text-gray-600" for="imageChangeTick">Change Profile Picture</label>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100 rounded-lg">
+                            <i class="fas fa-save me-2"></i>Save Changes
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Custom JS -->
+    <script src="{% static 'js/script.js' %}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchAndEditData();
+        });
+    </script>
+</body>
+
+</html>

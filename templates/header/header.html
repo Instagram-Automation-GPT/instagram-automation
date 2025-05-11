@@ -1,0 +1,41 @@
+{% load static %}
+<!-- header.html -->
+<link rel="stylesheet" type="text/css" href="{% static 'css/header.css' %}">
+<!-- header.html -->
+<header class="site-header">
+    <div class="container mx-auto flex items-center justify-between py-4 px-4">
+        <!-- Logo -->
+        <div class="logo text-2xl font-bold text-gray-800">
+            <a href="/" class="hover:text-indigo-500">Instagram AI</a>
+        </div>
+
+        <!-- Navigation Links -->
+        <nav class="nav-links md:flex text-gray-700">
+            <a href="/dashboard/" class="hover:text-indigo-500">Home</a>
+            <a href="/publish/" class="hover:text-indigo-500">Publish</a>
+            <a href="/register/" class="hover:text-indigo-500">Register</a>
+            <a href="/queues/" class="hover:text-indigo-500">Queues</a>
+            <a href="/follow/" class="hover:text-indigo-500">Follower Finder</a>
+            <a href="/dofollow/" class="hover:text-indigo-500">Autofollow</a>
+        </nav>
+
+        <!-- Mobile Menu Button -->
+        <button class="mobile-menu-button md:hidden text-gray-700 hover:text-indigo-500 focus:outline-none">
+            <i class="fa fa-bars fa-2x"></i>
+        </button>
+    </div>
+
+    <!-- Mobile Menu -->
+    <div class="bg-gray-100 dropdown">
+        <nav id="navBar" class="mobile-menu space-y-4 px-4 hidden">
+            <a href="/dashboard/" class="hover:text-indigo-500 p-1.5">Home</a>
+            <a href="/publish/" class="hover:text-indigo-500 p-1.5">Publish</a>
+            <a href="/register/" class="hover:text-indigo-500 p-1.5">Register</a>
+            <a href="/queues/" class="hover:text-indigo-500 p-1.5">Queues</a>
+            <a href="/follow/" class="hover:text-indigo-500 p-1.5">Follower Finder</a>
+            <a href="/dofollow/" class="hover:text-indigo-500 p-1.5">Autofollow</a>
+        </nav>
+    </div>
+</header>
+
+<script src="{% static 'js/header.js' %}" ></script>
