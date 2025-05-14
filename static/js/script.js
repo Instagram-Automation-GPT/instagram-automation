@@ -72,7 +72,7 @@ function hideProgress() {
 // Combined JavaScript function to fetch data and edit account
 async function fetchAndEditData() {
     showLoading();
-    
+
     try {
         const headers = {
             'X-CSRFToken': getCookie('csrftoken'),
@@ -132,40 +132,40 @@ function initializeHTML(accountData) {
             } else if (detail === 'Description' || detail === 'Hashtags') {
                 const editableDiv = document.createElement('div');
                 editableDiv.className = 'editable-field';
-                
+
                 const inputGroup = document.createElement('div');
                 inputGroup.className = 'input-group';
-                
+
                 const input = document.createElement('input');
                 input.type = 'text';
                 input.className = 'form-control';
                 input.placeholder = `Click to add ${detail.toLowerCase()}`;
                 input.value = account[detail.toLowerCase()] || '';
-                
+
                 const buttonGroup = document.createElement('div');
                 buttonGroup.className = 'input-group-append';
-                
+
                 const saveButton = document.createElement('button');
                 saveButton.className = 'btn btn-outline-primary save-btn';
                 saveButton.innerHTML = '<i class="fas fa-check"></i>';
                 saveButton.title = 'Save changes';
-                
+
                 const cancelButton = document.createElement('button');
                 cancelButton.className = 'btn btn-outline-secondary cancel-btn';
                 cancelButton.innerHTML = '<i class="fas fa-times"></i>';
                 cancelButton.title = 'Cancel';
-                
+
                 buttonGroup.appendChild(saveButton);
                 buttonGroup.appendChild(cancelButton);
                 inputGroup.appendChild(input);
                 inputGroup.appendChild(buttonGroup);
                 editableDiv.appendChild(inputGroup);
-                
+
                 // Add notification element
                 const notification = document.createElement('div');
                 notification.className = 'notification';
                 editableDiv.appendChild(notification);
-                
+
                 // Handle save button click
                 saveButton.addEventListener('click', async () => {
                     const value = input.value.trim();
@@ -173,15 +173,15 @@ function initializeHTML(accountData) {
                         // Show in-progress notification
                         notification.className = 'notification in-progress';
                         notification.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
-                        
+
                         try {
                             await saveUpdatedDetail(detail.toLowerCase(), value, account);
                             account[detail.toLowerCase()] = value;
-                            
+
                             // Show success notification
                             notification.className = 'notification success';
                             notification.innerHTML = '<i class="fas fa-check-circle"></i> Saved successfully!';
-                            
+
                             // Hide notification after 3 seconds
                             setTimeout(() => {
                                 notification.className = 'notification';
@@ -191,7 +191,7 @@ function initializeHTML(accountData) {
                             // Show error notification
                             notification.className = 'notification error';
                             notification.innerHTML = '<i class="fas fa-exclamation-circle"></i> Failed to save!';
-                            
+
                             // Hide notification after 3 seconds
                             setTimeout(() => {
                                 notification.className = 'notification';
@@ -200,12 +200,12 @@ function initializeHTML(accountData) {
                         }
                     }
                 });
-                
+
                 // Handle cancel button click
                 cancelButton.addEventListener('click', () => {
                     input.value = account[detail.toLowerCase()] || '';
                 });
-                
+
                 p.textContent = `${detail}: `;
                 p.appendChild(editableDiv);
             } else {
@@ -279,31 +279,35 @@ function deleteAccount(account) {
         });
 }
 
+// Function to handle edit button click
 function editAccount(account) {
     const username = account.username;
     console.log(`Editing account: ${username}`);
 
+    // Show the modal
     const modal = new bootstrap.Modal(document.getElementById('editModal'));
     modal.show();
 
+    // Populate username field
     document.getElementById('currentUsername').value = username;
 
+    // Clear previous tick marks
     document.getElementById('usernameChangeTick').checked = false;
     document.getElementById('fullnameChangeTick').checked = false;
     document.getElementById('imageChangeTick').checked = false;
 
+    // When the form inputs change, tick the boxes
     document.getElementById('newUsername').addEventListener('input', function () {
         document.getElementById('usernameChangeTick').checked = this.value.trim() !== '';
     });
-
     document.getElementById('newFullname').addEventListener('input', function () {
         document.getElementById('fullnameChangeTick').checked = this.value.trim() !== '';
     });
-
     document.getElementById('imageUpload').addEventListener('change', function () {
         document.getElementById('imageChangeTick').checked = this.files.length > 0;
     });
 
+    // When the form is submitted
     document.getElementById('editForm').onsubmit = function (event) {
         event.preventDefault();
 
@@ -318,6 +322,7 @@ function editAccount(account) {
             image: image || null
         };
 
+        // Show a progress bar or indicator
         const progressBar = document.getElementById('progress-bar');
         const progressBarFill = document.getElementById('progress-bar-fill');
         progressBar.style.display = 'flex';
@@ -332,57 +337,111 @@ function editAccount(account) {
             }
         }, 70);
 
-        const formData = new FormData();
-        formData.append('old_username', payload.old_username);
-        if (payload.new_username) formData.append('new_username', payload.new_username);
-        if (payload.new_fullname) formData.append('new_fullname', payload.new_fullname);
-        if (payload.image) formData.append('image', payload.image);
+        // Handle separate requests based on changes
+        const requests = [];
 
-        fetch('/edit_session/', {
-            method: 'POST',
-            headers: {
-                'X-CSRFToken': getCookie('csrftoken')
-            },
-            body: formData
-        })
-            .then(response => {
-                if (response.ok) {
-                    window.location.reload(true);
+        // If username is changed, send the username change request
+        if (newUsername) {
+            requests.push(fetch('/username_change/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ old_username: username, new_username: newUsername })
+            }));
+        }
+
+        // If fullname is changed, send the fullname change request
+        if (newFullname) {
+            requests.push(fetch('/new_fullname/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken'),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username: username, new_fullname: newFullname })
+            }));
+        }
+
+        // If profile image is changed, send the image upload request
+        if (image) {
+            const formData = new FormData();
+            formData.append('username', username);
+            formData.append('image', image);
+
+            requests.push(fetch('/profile_change/', {
+                method: 'POST',
+                headers: {
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: formData
+            }));
+        }
+
+
+
+        // Wait for all requests to finish
+        Promise.all(requests)
+            .then(responses => {
+                return Promise.all(responses.map(response => response.json()));
+            })
+            .then(data => {
+                clearInterval(interval);
+                progressBar.style.display = 'none';
+
+                // Check if all requests were successful
+                const allSuccess = data.every(response => response.success);
+                if (allSuccess) {
+                    alert(`Changes saved successfully for ${username}!`);
+                    if (newUsername) account.username = newUsername;
+                    if (newFullname) account.fullname = newFullname;
                 } else {
-                    throw new Error('Failed to update session');
+                    alert('Failed to update one or more fields!');
                 }
+                modal.hide();
             })
             .catch(error => {
-                console.error('There was a problem with update session:', error);
-            })
-            .finally(() => {
+                clearInterval(interval);
                 progressBar.style.display = 'none';
+                console.error('Error updating:', error);
+                alert('Error updating!');
+                modal.hide();
             });
     };
 }
 
+// Function to save updated account details
 function saveUpdatedDetail(detail, value, account) {
+    const csrftoken = getCookie('csrftoken');
+
     const formData = new FormData();
     formData.append('username', account.username);
-    formData.append('description', account.description || '');
-    formData.append('hashtags', account.hashtags || '');
+    formData.append('description', detail === 'description' ? value : '');
+    formData.append('hashtags', detail === 'hashtags' ? value : '');
 
-    fetch('/edit_session_list/', {
+    const fetchOptions = {
         method: 'POST',
+        body: formData,
         headers: {
-            'X-CSRFToken': getCookie('csrftoken')
-        },
-        body: formData
-    })
+            'X-CSRFToken': csrftoken
+        }
+    };
+
+    fetch('/edit_session_list/', fetchOptions)
         .then(response => {
             if (!response.ok) {
-                throw new Error('Failed to update detail');
+                throw new Error(`HTTP error! Status: ${response.status}`);
             }
+            console.log('Detail updated successfully');
+            window.alert('Updated successfully!');
         })
         .catch(error => {
-            console.error('There was a problem with update detail:', error);
+            console.error('Failed to update detail:', error.message);
+            window.alert('Failed to update: ' + error.message);
         });
 }
+
 
 function sleep(milliseconds) {
     return new Promise(resolve => setTimeout(resolve, milliseconds));
