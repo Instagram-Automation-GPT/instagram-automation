@@ -46,24 +46,29 @@ def follow_instagram_login(request):
     ensure_collection_exists(db, 'session_extractor')
 
     if request.method == 'POST':
-        try:            
-            data = json.loads(request.body)
+        try:
+            body_unicode = request.body.decode('utf-8')            
+            data = json.loads(body_unicode)
             insta_user = data.get('username')
             insta_password = data.get('password')
-            insta_code = data.get('code')
+            # insta_code = data.get('code')
+            two_step_code = data.get('twostepcode')
             
             if not insta_user or not insta_password:
                 return JsonResponse({'message': "Username and password are required."}, status=400)            
             
-            code_data = {'email_code': insta_code}
+            # code_data = {'email_code': insta_code}
             user = request.user.username
             current_time = datetime.now()
             register_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
             
-            if code_data:
-                # Write code to a temporary JSON file
-                with open('email_code.json', 'w') as json_file:
-                    json.dump(code_data, json_file)
+            # if code_data:
+            #     # Write code to a temporary JSON file
+            #     with open('email_code.json', 'w') as json_file:
+            #         json.dump(code_data, json_file)
+                    
+            if two_step_code: 
+                login_extractors_twostep(insta_user, insta_password, user, register_time, two_step_code)
         
             try:  
                 login_extractors(insta_user, insta_password, user, register_time)
@@ -105,6 +110,39 @@ def login_extractors(username, password, user, register_time):
         
         client.set_proxy(PROXY_URL)
         client.login(username, password)
+        
+        # Save settings to a temporary path
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:
+            temp_path = temp_file.name
+            client.dump_settings(temp_path)
+
+        # Read the saved JSON content
+        with open(temp_path, 'r') as file:
+            json_content = json.load(file)
+
+        # Remove the temporary file
+        os.unlink(temp_path)
+        
+        # Save session for future use
+        save_session(json_content, username, password, user, register_time)
+        print("Logged in and session saved")
+        
+    return True
+
+def login_extractors_twostep(username, password, user, register_time, two_step_code):
+    # Check if a saved session exists
+    collection = db["session_extractor"]
+    session_data = collection.find_one(sort=[("timestamp", -1)])  # Get the latest session
+    
+    if session_data:
+        client.load_settings(json.loads(session_data["session_json"]))
+        print("Logged in using saved session")
+    else:
+        # If no session found, login
+        client.challenge_code_handler = challenge_code_handler
+        
+        client.set_proxy(PROXY_URL)
+        client.login(username, password, verification_code=two_step_code)
         
         # Save settings to a temporary path
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp_file:

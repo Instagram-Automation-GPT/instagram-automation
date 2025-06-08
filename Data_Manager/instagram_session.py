@@ -111,19 +111,15 @@ def update_insta_session(username, status, msg):
 
 def challenge_code_handler(username, choice):
     if choice == ChallengeChoice.EMAIL:
+
         # Check if the file exists
-        email_code_file = os.path.normpath('email_code.json')
-        if os.path.exists(email_code_file):
+        if os.path.exists('email_code.json'):
             # Read the email code from the JSON file
-            with open(email_code_file, 'r') as json_file:
+            with open('email_code.json', 'r') as json_file:
                 data = json.load(json_file)
                 insta_code = data.get('email_code', '')
 
-            try:
-                if os.path.exists(email_code_file):
-                    os.remove(email_code_file)
-            except Exception as e:
-                print(f"Error removing email code file: {str(e)}")
+            os.remove('email_code.json')
 
             # Check if the insta_code contains digits
             if insta_code.isdigit():
@@ -138,6 +134,19 @@ def challenge_code_handler(username, choice):
         return True
 
     return False
+
+def change_password_handler(username):
+    
+    # Check if the file exists
+    if os.path.exists('password.json'):
+        # Read the email code from the JSON file
+        with open('password.json', 'r') as json_file:
+            data = json.load(json_file)
+            password = data.get('password', '')
+
+        os.remove('password.json')
+
+    return password
 
 
 @login_required
@@ -157,24 +166,30 @@ def register(request):
             insta = load_insta_session(insta_user)
             code_data = {'email_code': insta_code}
 
-            # Write code to a temporary json file
+            # Write code to a temporarley json file
             if code_data:
-                # Create normalized path for the email code file
-                email_code_file = os.path.normpath('email_code.json')
-                
                 # Write code to a temporary JSON file
-                with open(email_code_file, 'w') as json_file:
+                with open('email_code.json', 'w') as json_file:
                     json.dump(code_data, json_file)
+                    
+                # Write password to a temporary JSON file
+                with open('password.json', 'w') as json_file:
+                    json.dump(insta_password, json_file)
+                    
 
             if not insta:
                 try:
                     insta = Client()
                     insta.set_proxy(PROXY_URL)
-                    insta.challenge_code_handler = challenge_code_handler
+                    
+                    def provide_password(username):
+                        return insta_password
                     
                     if twostep: 
                         insta.login(insta_user, insta_password, verification_code=twostep)
                         
+                    insta.challenge_code_handler = challenge_code_handler
+                    insta.change_password_handler = provide_password
                     insta.login(insta_user, insta_password)
 
                     # Save settings to a temporary path
