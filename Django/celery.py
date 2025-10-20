@@ -1,9 +1,12 @@
 from __future__ import absolute_import, unicode_literals
 import os
-from celery import Celery, shared_task
-from django.conf import settings
+from celery import Celery
 
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'Django.settings')
+app = Celery('Django')
+
+from django.conf import settings
+print("CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP:", getattr(settings, 'CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP', 'Not Set'))
 
 app = Celery('instagramautomation')
 
@@ -17,6 +20,6 @@ app.conf.beat_schedule = {
     },
     'fetch-and-execute-tasks-every-5-minutes': {
         'task': 'tasks.auto_posting',
-        'schedule': 60.0,  # 300 seconds == 5 minutes
+        'schedule': 60.0,  # 60 seconds == 1 minute
     },
 }

@@ -309,26 +309,19 @@ function searchAiImages() {
             data.image_urls.forEach(url => {
                 var img = document.createElement('img');
                 img.src = url;
-                img.style.width = "20%"; // Set width as per your requirement
-                img.style.height = "20%"; // Maintain aspect ratio
-                img.style.padding = "5px";
-                
-                spinner.style.display = 'none'
-                // Add event listener for image selection
-                img.addEventListener('click', function() {
-                    // Remove selection from previously selected image
-                    var previouslySelected = document.querySelector('.selected');
-                    if (previouslySelected) {
-                        previouslySelected.classList.remove('selected');
-                    }
-
-                    // Select the clicked image
-                    img.classList.add('selected');
-                    selectedImageUrl = img.src;
+              
+                // Use the same styles you already defined for .image-style
+                img.className = 'image-style'; // fills the grid cell nicely
+              
+                // Selection: make class consistent with your CSS (.selected-image)
+                img.addEventListener('click', function () {
+                  document.querySelectorAll('#findimageContainer img').forEach(el => el.classList.remove('selected-image'));
+                  this.classList.add('selected-image');
+                  selectedImageUrl = this.src;
                 });
-
+              
                 imageContainer.appendChild(img);
-            });
+              });
         })
         .catch(error => {
             // Handle any errors that occur during the fetch request

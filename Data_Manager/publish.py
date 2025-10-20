@@ -16,7 +16,7 @@ import requests
 from env import get
 from . import mongo_session
 from . import text_ai
-from datetime import datetime
+from datetime import datetime, timedelta
 from . import minio_session
 from urllib3.exceptions import ResponseError
 from bson import json_util
@@ -26,6 +26,8 @@ from .text_ai import news_data
 import json as jsonloader
 from . import telegram_publish
 from dotenv import load_dotenv
+import traceback
+import uuid
 
 # Load environment variables
 load_dotenv()
@@ -40,8 +42,6 @@ PROXY_PORT = os.getenv('PROXY_PORT')
 PROXY_URL = f"socks5://{PROXY_USERNAME}:{PROXY_PASSWORD}@{PROXY_HOST}:{PROXY_PORT}"
 
 from instagrapi import Client
-
-cl = Client()
 
 logger = logging.getLogger(__name__)
 
@@ -61,38 +61,97 @@ queue_error_collection.create_index([("id", 1)], unique=True)
 queue_collection.create_index([("id", 1)], unique=True)
 prompt_collection = db["master_prompt"]
 
+# ---- NEW: locks collection for idempotency (unique per queue_id/account/type) ----
+locks_collection = db["PublishLocks"]
+try:
+    locks_collection.create_index([("key", 1)], unique=True)
+    # Optional TTL so stale locks clear automatically (1 hour)
+    locks_collection.create_index("expireAt", expireAfterSeconds=0)
+except Exception as _e:
+    logger.warning(f"Lock index creation warning: {_e}")
+
 OPclient = openai.OpenAI(
     api_key=os.getenv('OPENAI_API_KEY')
 )
 
+# -----------------------------
+# Helpers
+# -----------------------------
 
+def find_session(username):
+    """Return the instagrapi session for a given username, or None."""
+    for u, s in insta:
+        if u == username:
+            return s
+    return None
+
+def acquire_publish_lock(queue_id: int, account: str, media_type: str, ttl_seconds: int = 3600) -> bool:
+    """
+    Acquire a per-(queue_id, account, media_type) publish lock.
+    Returns True if acquired, False if already held (idempotency guard).
+    """
+    key = f"{queue_id}:{account}:{media_type}"
+    try:
+        locks_collection.insert_one({
+            "key": key,
+            "createdAt": datetime.utcnow(),
+            "expireAt": datetime.utcnow() + timedelta(seconds=ttl_seconds),
+            "token": str(uuid.uuid4())
+        })
+        return True
+    except DuplicateKeyError:
+        return False
+
+def already_published(document_id: int, account_name: str, media_type: str) -> bool:
+    """
+    Check queue document to see if this media_type has already succeeded for the account.
+    (Reels map to post_status on the front-end.)
+    """
+    doc = queue_collection.find_one({"id": int(document_id)}, {"accounts": 1})
+    if not doc:
+        return False
+    for acc in doc.get("accounts", []):
+        if acc.get("username") != account_name:
+            continue
+        if media_type == "story":
+            return acc.get("story_status") is True
+        # post or reels use post_status bucket
+        return acc.get("post_status") is True
+    return False
+
+def make_reels_client(session_json):
+    """
+    Build an isolated instagrapi.Client for reels publishing.
+    Avoids cross-talk from a global client.
+    """
+    c = Client()
+    c.set_proxy(PROXY_URL)
+    if session_json:
+        c.set_settings(session_json)
+    return c
+
+# -----------------------------
+# Tasks / Views
+# -----------------------------
 
 @shared_task
 def automate_post(country, account):
     """
-    This function has been disabled as the news feature is no longer used.
+    Disabled as the news feature is no longer used.
     """
     try:
         description, hashtags = description_hashtags(account, "both")
         doc = telegram_channel_collection.find_one({"insta": account})
-        
-        # Instead of using news_data, we're returning an informational message
         message = "The news feature has been disabled as per user request."
         print(message)
-        
-        # Log the attempt to use disabled feature
         for username, session in insta:
             if username == account:
                 print(f"Attempted to use news feature for account: {account}")
                 break
-                
         return {"status": "disabled", "message": message}
     except Exception as e:
         print(str(e))
         return {"status": "error", "message": str(e)}
-
-
-
 
 @login_required
 def clients(request):
@@ -106,20 +165,16 @@ def clients(request):
             continue
     return JsonResponse({'message': clients}, status=200)
 
-
 def get_next_id(collection):
-    # Find the maximum existing _id and add 1 to it
     result = collection.find_one({}, sort=[("id", -1)])
     if result and 'id' in result:
         return result['id'] + 1
     else:
         return 1000  # Start from 1000 if collection is empty
 
-
 # Configure logging
 logger = logging.getLogger(__name__)
 temp_dir = '/tmp'
-
 
 @login_required
 @api_view(['POST'])
@@ -130,23 +185,19 @@ def publish_content(request):
     username = request.user.username
     generated = False
     temp_image_path = None
+    object_name = None
     next_id = get_next_id(queue_collection)
     try:
-        # Assuming the request body contains JSON data
-        # body_unicode = request.data
-        body_data = request
-
-        # Log the received data
-        logger.debug(f"Received body_data: {body_data}")
+        # Django request object is already parsed in DRF
+        logger.debug(f"Request user: {username}")
 
         image = request.POST.get('image_url')
         types = json.loads(request.POST.get('types', '[]'))
-        accounts = json.loads(request.POST.get('accounts', '[]'))
+        accounts_raw = json.loads(request.POST.get('accounts', '[]'))
+        # ---- NEW: de-duplicate accounts to avoid double publishing same user ----
+        accounts = list(dict.fromkeys(accounts_raw))
         caption = request.POST.get('caption')
-        time_gap = request.POST.get('time_gap')
-        # cover = request.POST.get('cover')
-        # print(cover, image)
-        
+        time_gap = request.POST.get('time_gap') or "0"
 
         print(f"These are accounts: {accounts}")
 
@@ -157,7 +208,7 @@ def publish_content(request):
             if photo_file:
                 filename = photo_file.name
                 object_name = f"{filename.split('.')[0]}_{formatted_time}.{filename.split('.')[-1]}"
-                temp_image_path = temp_dir + "/" + object_name
+                temp_image_path = os.path.join(temp_dir, object_name)
                 with open(temp_image_path, 'wb') as temp_image:
                     for chunk in photo_file.chunks():
                         temp_image.write(chunk)
@@ -167,73 +218,51 @@ def publish_content(request):
                     minio_client.fput_object(bucket_name, object_name, temp_image_path)
                 except ResponseError as error:
                     return JsonResponse({"error": "Failed to save image in Minio!"}, status=500)
-
             else:
                 return JsonResponse({"error": "No file uploaded!"}, status=400)
-            
+
         temp_cover_path = None
         if 'reels' in types:
-            cover = request.FILES.get('cover')  # Retrieve the uploaded file
-
+            cover = request.FILES.get('cover')
             if cover:
-                # Print uploaded file information for debugging
                 print(f"This is cover name: {cover.name}")
-
-                # Generate a unique filename with a timestamp
                 filename = cover.name
-                object_name = f"{filename.split('.')[0]}_{formatted_time}.{filename.split('.')[-1]}"
-                temp_cover_path = f"{temp_dir}\\{object_name}"  # Ensure this is a valid string path
-
-                # Save the uploaded file to a temporary location
+                object_name_cover = f"{filename.split('.')[0]}_{formatted_time}.{filename.split('.')[-1]}"
+                temp_cover_path = os.path.join(temp_dir, object_name_cover)
                 with open(temp_cover_path, 'wb') as temp_image:
                     for chunk in cover.chunks():
                         temp_image.write(chunk)
-
-                # Upload the saved file to MinIO
-                minio_client.fput_object(bucket_name, object_name, temp_cover_path)
-
+                minio_client.fput_object(bucket_name, object_name_cover, temp_cover_path)
             else:
-                print("No cover file uploaded!")  # Print if no cover file is provided
-                pass
-            
+                print("No cover file uploaded!")
 
         elif image:
             # Handle image URL case
+            print("here?")
             image_url = image
             print(f"this is image url: {image_url}")
             response = requests.get(image_url)
             if response.status_code == 200:
                 if not os.path.exists(temp_dir):
                     os.makedirs(temp_dir)
-                    
-                # Sanitize the object name
                 hashed_name = hashlib.md5(image_url.encode('utf-8')).hexdigest()
                 file_extension = os.path.splitext(image_url)[1]
-
                 sanitized_object_name = f"{hashed_name}{file_extension}"
-                
-                
                 temp_image_path = os.path.join(temp_dir, sanitized_object_name)
-                
                 with open(temp_image_path, 'wb') as temp_image:
                     temp_image.write(response.content)
-                
                 object_name = f"{next_id}_{formatted_time}.{image_url.split('.')[-1]}"
                 minio_client.fput_object(bucket_name, object_name, temp_image_path)
-                
                 print(f"Image saved successfully at: {temp_image_path}")
             else:
                 return JsonResponse({"error": "Failed to download the image."}, status=400)
 
-        else:
-            return JsonResponse({"error": "Bad request."}, status=400)
-
-        # Prepare document for MongoDB insertion
+        # Prepare doc for MongoDB
         document = {
             "id": next_id,
             "username": username,
             "timestamp": formatted_time,
-            "path": object_name,
+            "path": object_name if image else object_name,  # ensure object_name exists from above
             "types": types,
             "caption": caption,
             "generated": True,
@@ -250,16 +279,17 @@ def publish_content(request):
             "active": True
         }
 
-        # Update status messages based on types
+        # Initialize per-type fields
         for acc in document["accounts"]:
             if "story" in types:
                 acc["story_status"] = None
                 acc["story_message"] = "Not started."
-            if "post" in types:
+            if "post" in types or "reels" in types:
+                # Use post_* fields for both post and reels (front-end expects post_*).
                 acc["post_status"] = None
                 acc["post_message"] = "Not started."
 
-        # Insert into MongoDB
+        # Insert into DB
         try:
             result = queue_collection.insert_one(document)
             if not result.inserted_id:
@@ -267,24 +297,30 @@ def publish_content(request):
         except DuplicateKeyError:
             return JsonResponse({"error": "Duplicate path found in the database. Path must be unique."}, status=400)
 
-        # Trigger celery task
-        if 'reels' in types and temp_cover_path:
-            queue.delay(time_gap, accounts, types, caption, temp_image_path, document["id"], temp_cover_path)
-        elif 'reels' in types and not temp_cover_path:
+        # Trigger celery task (keep existing orchestration; tasks are now safe/idempotent)
+        if "reels" in types:
+            if temp_cover_path:
+                queue.delay(time_gap, accounts, types, caption, temp_image_path, document["id"], temp_cover_path)
+            else:
+                queue_notcover.delay(time_gap, accounts, types, caption, temp_image_path, document["id"])
+        elif "post" in types:
             queue_notcover.delay(time_gap, accounts, types, caption, temp_image_path, document["id"])
         else:
-            queue.delay(time_gap, accounts, types, caption, temp_image_path, document["id"])
+            queue.delay(time_gap, accounts, types, caption, temp_image_path, document["id"], None)
 
         return JsonResponse({"message": "Task triggered successfully!"})
 
     except json.JSONDecodeError:
         return JsonResponse({"error": "Invalid JSON format in request body."}, status=400)
-
     except Exception as e:
+        logger.error("Unhandled exception in publish_content:\n" + traceback.format_exc())
         return JsonResponse({"error": str(e)}, status=500)
 
-
-def pub(type, id, account, session, caption, image, cover):
+def pub(type, id, account, session, caption, image, cover=None):
+    """
+    Unified publisher for story/post/reels. 'cover' is optional.
+    NOTE: Reels uses an isolated Client per publish to avoid cross-talk.
+    """
     if type == "story":
         try:
             session.photo_upload_to_story(image)
@@ -292,10 +328,10 @@ def pub(type, id, account, session, caption, image, cover):
             return
         except ClientConnectionError:
             update_status("story", id, account, False, "ClientConnectionError", "")
-            raise Exception('ClientConnectionError')
+            raise
         except Exception as e:
             update_status("story", id, account, False, str(e), "")
-            raise Exception(str(e))
+            raise
 
     if type == "post":
         try:
@@ -305,32 +341,31 @@ def pub(type, id, account, session, caption, image, cover):
             return
         except ClientConnectionError:
             update_status("post", id, account, False, "ClientConnectionError", caption)
-            raise Exception('ClientConnectionError')
+            raise
         except Exception as e:
             update_status("post", id, account, False, str(e), caption)
-            raise Exception(str(e))
-        
+            raise
+
     if type == "reels":
         try:
-            
             session_record = instagram_session_collection.find_one({"username": account})
-            # Deserialize the session JSON
-            session_json = session_record.get("session_json")
-            cl.set_proxy(PROXY_URL)
-            cl.set_settings(session_json)
+            session_json = session_record.get("session_json") if session_record else None
+            # ---- NEW: per-publish client ----
+            reel_client = make_reels_client(session_json)
+            # Upload reel
             if cover:
-                cl.clip_upload(image, caption, cover)    
+                reel_client.clip_upload(image, caption, cover)
             else:
-                cl.clip_upload(image, caption)
-                update_status("reels", id, account, True, "", caption)
-                return
+                reel_client.clip_upload(image, caption)
+            update_status("reels", id, account, True, "", caption)
+            return
         except ClientConnectionError:
             update_status("reels", id, account, False, "ClientConnectionError", caption)
-            raise Exception('ClientConnectionError')
+            raise
         except Exception as e:
             update_status("reels", id, account, False, str(e), caption)
-            raise Exception(str(e))
-        
+            raise
+
 def pub_reels_withoutcover(type, id, account, session, caption, image):
     if type == "story":
         try:
@@ -339,10 +374,10 @@ def pub_reels_withoutcover(type, id, account, session, caption, image):
             return
         except ClientConnectionError:
             update_status("story", id, account, False, "ClientConnectionError", "")
-            raise Exception('ClientConnectionError')
+            raise
         except Exception as e:
             update_status("story", id, account, False, str(e), "")
-            raise Exception(str(e))
+            raise
 
     if type == "post":
         try:
@@ -352,212 +387,239 @@ def pub_reels_withoutcover(type, id, account, session, caption, image):
             return
         except ClientConnectionError:
             update_status("post", id, account, False, "ClientConnectionError", caption)
-            raise Exception('ClientConnectionError')
+            raise
         except Exception as e:
             update_status("post", id, account, False, str(e), caption)
-            raise Exception(str(e))
-        
+            raise
+
     if type == "reels":
         try:
-            
             session_record = instagram_session_collection.find_one({"username": account})
-            # Deserialize the session JSON
-            session_json = session_record.get("session_json")
-            cl.set_proxy(PROXY_URL)
-            cl.set_settings(session_json)
-            cl.get_timeline_feed()
-            cl.clip_upload(image, caption)
+            session_json = session_record.get("session_json") if session_record else None
+            # ---- NEW: per-publish client ----
+            reel_client = make_reels_client(session_json)
+            # Optional warm-up (can be omitted):
+            # reel_client.get_timeline_feed()
+            reel_client.clip_upload(image, caption)
             update_status("reels", id, account, True, "", caption)
             return
         except ClientConnectionError:
             update_status("reels", id, account, False, "ClientConnectionError", caption)
-            raise Exception('ClientConnectionError')
+            raise
         except Exception as e:
             update_status("reels", id, account, False, str(e), caption)
-            raise Exception(str(e))
+            raise
 
-
-
-@shared_task(bind=True)
+# ---- IMPORTANT: acks_late=False to avoid redelivery after long sleeps ----
+@shared_task(bind=True, acks_late=False)
 def queue(self, gap, accounts, types, caption, image, id, cover, null="null"):
+    """
+    Orchestrates story/post/reels for multiple accounts with a gap between each.
+    Changes:
+      - acks_late=False to reduce duplicate redelivery after upload but before ack.
+      - reels protected with an idempotency lock.
+      - skip if already published (extra safety).
+    """
     print(f"Arguments received: {gap}, {accounts}, {types}, {caption}, {image}, {id}, {cover}")
     gap_int = int(gap)
-    gap = gap_int * 60
+    gap_seconds = gap_int * 60
+
     for account in accounts:
-        for username, session in insta:
-            if username == account:
-                if "story" in types:
-                    try:
-                        pub("story", id, account, session, caption, image)
-                    except Exception:
-                        print('handled')
-                        continue
-                if "post" in types:
-                    try:
-                        if "aicaption" in types:
-                            description, hashtags = description_hashtags(username, "both")
-                            private_caption = get_caption(account, caption, hashtags, description, id)
-                            pub("post", id, account, session, private_caption, image)
-                        else:
-                            pub("post", id, account, session, caption, image)
-                    except Exception as e:
-                        print(str(e))
-                        continue
-                if "reels" in types:
-                    try:
-                        if "aicaption" in types:
-                            description, hashtags = description_hashtags(username, "both")
-                            private_caption = get_caption(account, caption, hashtags, description, id)
-                            pub("reels", id, account, session, private_caption, image, cover)
-                        else:
-                            pub("reels", id, account, session, caption, image, cover)
-                    except Exception as e:
-                        print(str(e))
-                        continue
-        sleep(gap)
-    os.remove(image)
-    trigger_status(id, False)
-    
-@shared_task(bind=True)
+        session = find_session(account)
+        if not session:
+            logger.error(f"No session found for account {account}")
+            # Mark both story/post (and reels mapped to post) as failed for visibility
+            if "story" in types:
+                update_status("story", id, account, False, "No session", "")
+            if "post" in types or "reels" in types:
+                update_status("post", id, account, False, "No session", caption)
+            sleep(gap_seconds)
+            continue
+
+        # STORY
+        if "story" in types:
+            try:
+                if not already_published(id, account, "story"):
+                    pub("story", id, account, session, caption, image)
+                else:
+                    logger.info(f"[skip duplicate] story already published id={id} account={account}")
+            except Exception as e:
+                logger.exception(f"Story publish failed for {account}: {e}")
+
+        # POST
+        if "post" in types:
+            try:
+                if not already_published(id, account, "post"):
+                    if "aicaption" in types:
+                        description, hashtags = description_hashtags(account, "both")
+                        private_caption = get_caption(account, caption, description, hashtags, id)
+                        pub("post", id, account, session, private_caption, image)
+                    else:
+                        pub("post", id, account, session, caption, image)
+                else:
+                    logger.info(f"[skip duplicate] post already published id={id} account={account}")
+            except Exception as e:
+                logger.exception(f"Post publish failed for {account}: {e}")
+
+        # REELS
+        if "reels" in types:
+            try:
+                # ---- NEW: idempotency lock just for reels ----
+                if not already_published(id, account, "reels") and acquire_publish_lock(id, account, "reels"):
+                    if "aicaption" in types:
+                        description, hashtags = description_hashtags(account, "both")
+                        private_caption = get_caption(account, caption, description, hashtags, id)
+                        pub("reels", id, account, session, private_caption, image, cover)
+                    else:
+                        pub("reels", id, account, session, caption, image, cover)
+                else:
+                    logger.info(f"[skip duplicate] reels already published/locked id={id} account={account}")
+            except Exception as e:
+                logger.exception(f"Reels publish failed for {account}: {e}")
+
+        # Wait between accounts
+        sleep(gap_seconds)
+
+    try:
+        if os.path.exists(image):
+            os.remove(image)
+    except Exception as e:
+        logger.warning(f"Could not remove temp image {image}: {e}")
+    trigger_status(False, id)
+
+@shared_task(bind=True, acks_late=False)
 def queue_notcover(self, gap, accounts, types, caption, image, id, null="null"):
     print(f"Arguments received: {gap}, {accounts}, {types}, {caption}, {image}, {id}")
     gap_int = int(gap)
-    gap = gap_int * 60
+    gap_seconds = gap_int * 60
+
     for account in accounts:
-        for username, session in insta:
-            if username == account:
-                if "story" in types:
-                    try:
-                        pub("story", id, account, session, caption, image)
-                    except Exception:
-                        print('handled')
-                        continue
-                if "post" in types:
-                    try:
-                        if "aicaption" in types:
-                            description, hashtags = description_hashtags(username, "both")
-                            private_caption = get_caption(account, caption, hashtags, description, id)
-                            pub("post", id, account, session, private_caption, image)
-                        else:
-                            pub("post", id, account, session, caption, image)
-                    except Exception as e:
-                        print(str(e))
-                        continue
-                if "reels" in types:
-                    try:
-                        if "aicaption" in types:
-                            description, hashtags = description_hashtags(username, "both")
-                            private_caption = get_caption(account, caption, hashtags, description, id)
-                            pub_reels_withoutcover("reels", id, account, session, private_caption, image)
-                        else:
-                            pub_reels_withoutcover("reels", id, account, session, caption, image)
-                    except Exception as e:
-                        print(str(e))
-                        continue
-        sleep(gap)
-    os.remove(image)
-    trigger_status(id, False)
+        session = find_session(account)
+        if not session:
+            logger.error(f"No session found for account {account}")
+            if "story" in types:
+                update_status("story", id, account, False, "No session", "")
+            if "post" in types or "reels" in types:
+                update_status("post", id, account, False, "No session", caption)
+            sleep(gap_seconds)
+            continue
 
+        # STORY
+        if "story" in types:
+            try:
+                if not already_published(id, account, "story"):
+                    pub("story", id, account, session, caption, image)
+                else:
+                    logger.info(f"[skip duplicate] story already published id={id} account={account}")
+            except Exception as e:
+                logger.exception(f"Story publish failed for {account}: {e}")
 
-def update_status(type, document_id, account_name, status, e, caption):
-    global index
-    global message
+        # POST
+        if "post" in types:
+            try:
+                if not already_published(id, account, "post"):
+                    if "aicaption" in types:
+                        description, hashtags = description_hashtags(account, "both")
+                        private_caption = get_caption(account, caption, description, hashtags, id)
+                        pub("post", id, account, session, private_caption, image)
+                    else:
+                        pub("post", id, account, session, caption, image)
+                else:
+                    logger.info(f"[skip duplicate] post already published id={id} account={account}")
+            except Exception as e:
+                logger.exception(f"Post publish failed for {account}: {e}")
+
+        # REELS (without cover)
+        if "reels" in types:
+            try:
+                if not already_published(id, account, "reels") and acquire_publish_lock(id, account, "reels"):
+                    if "aicaption" in types:
+                        description, hashtags = description_hashtags(account, "both")
+                        private_caption = get_caption(account, caption, description, hashtags, id)
+                        pub_reels_withoutcover("reels", id, account, session, private_caption, image)
+                    else:
+                        pub_reels_withoutcover("reels", id, account, session, caption, image)
+                else:
+                    logger.info(f"[skip duplicate] reels already published/locked id={id} account={account}")
+            except Exception as e:
+                logger.exception(f"Reels publish failed for {account}: {e}")
+
+        sleep(gap_seconds)
+
+    try:
+        if os.path.exists(image):
+            os.remove(image)
+    except Exception as e:
+        logger.warning(f"Could not remove temp image {image}: {e}")
+    trigger_status(False, id)
+
+def update_status(type, document_id, account_name, status, e="", caption=""):
+    """
+    Fixes:
+    - Uses correct messages: "Published!" on success, error text on failure.
+    - Accepts caption default to avoid older calls breaking.
+    - Maps 'reels' to post_* fields for front-end compatibility.
+    """
     rec_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     if type == "story":
         index = "story_status"
         message = "story_message"
-    elif type == "post":
+    elif type == "post" or type == "reels":
         index = "post_status"
         message = "post_message"
-    elif type == "reels":
+    else:
         index = "post_status"
         message = "post_message"
 
     document_id = int(document_id)
-    if status:
-        document = queue_collection.find_one({"id": document_id})
-        if document:
-            try:
-                if type == "post":
-                    queue_collection.update_one(
-                        {"id": document_id, "accounts.username": account_name},
-                        {
-                            "$set": {
-                                f"accounts.$.{index}": status,
-                                f"accounts.$.{message}": "Published!",
-                                "accounts.$.lastCheck": rec_time,
-                                "accounts.$.caption": caption
-                            }
-                        }
-                    )
-                else:
-                    queue_collection.update_one(
-                        {"id": document_id, "accounts.username": account_name},
-                        {
-                            "$set": {
-                                f"accounts.$.{index}": status,
-                                f"accounts.$.{message}": e,  # ✅ Set to actual error message
-                                "accounts.$.lastCheck": rec_time
-                            }
-                        }
-                    )
+    document = queue_collection.find_one({"id": document_id})
+    if not document:
+        return
 
-            except Exception as err:
-                print(str(err))
+    # Success
+    if status is True:
+        update_doc = {
+            f"accounts.$.{index}": True,
+            f"accounts.$.{message}": "Published!",
+            "accounts.$.lastCheck": rec_time
+        }
+        if type == "post" or type == "reels":
+            update_doc["accounts.$.caption"] = caption
+        try:
+            queue_collection.update_one(
+                {"id": document_id, "accounts.username": account_name},
+                {"$set": update_doc}
+            )
+        except Exception as err:
+            logger.error(str(err))
+        return
 
-    if status == False:
-        document = queue_collection.find_one({"id": document_id})
-        if document:
-            if type == "post":
-                queue_collection.update_one(
-                    {"id": document_id, "accounts.username": account_name},
-                    {
-                        "$set": {
-                            f"accounts.$.{index}": status,
-                            f"accounts.$.{message}": e,
-                            "accounts.$.lastCheck": rec_time,
-                            "accounts.$.caption": caption
-                        }
-                    }
-                )
-            else:
-                queue_collection.update_one(
-                    {"id": document_id, "accounts.username": account_name},
-                    {
-                        "$set": {
-                            f"accounts.$.{index}": status,
-                            f"accounts.$.{message}": "Published!",
-                            "accounts.$.lastCheck": rec_time
-                        }
-                    }
-                )
-    if status == None:
-        document = queue_collection.find_one({"id": document_id})
-        if document:
-            if type == "post":
-                queue_collection.update_one(
-                    {"id": document_id, "accounts.username": account_name},
-                    {
-                        "$set": {
-                            f"accounts.$.{index}": status,
-                            f"accounts.$.{message}": e,
-                            "accounts.$.lastCheck": rec_time,
-                            "accounts.$.caption": caption
-                        }
-                    }
-                )
-            else:
-                queue_collection.update_one(
-                    {"id": document_id, "accounts.username": account_name},
-                    {
-                        "$set": {
-                            f"accounts.$.{index}": status,
-                            f"accounts.$.{message}": e,
-                            "accounts.$.lastCheck": rec_time
-                        }
-                    }
-                )
+    # Failure (False) or transitional (None)
+    update_doc = {
+        f"accounts.$.{index}": status,
+        f"accounts.$.{message}": e,
+        "accounts.$.lastCheck": rec_time
+    }
+    if type == "post" or type == "reels":
+        update_doc["accounts.$.caption"] = caption
 
+    try:
+        queue_collection.update_one(
+            {"id": document_id, "accounts.username": account_name},
+            {"$set": update_doc}
+        )
+    except Exception as err:
+        logger.error(str(err))
+
+    try:
+        if str(e) == '{"message":"login_required","status":"fail"}':
+            instagram_session_collection.update_one(
+                {"username": account_name},
+                {"$set": {"status": "unHealthy", "lastCheck": rec_time}}
+            )
+    except Exception as err:
+        logger.error(f"Failed to update instagram_session status for {account_name}: {err}")
 
 # @login_required
 def queue_log(request):
@@ -573,16 +635,15 @@ def queue_log(request):
             true_count = 0
             false_count = 0
             none_count = 0
-            types = doc.get("types")
-            post_check = False
-            story_check = False
-            if "post" in types:
-                post_check = True
-            if "story" in types:
-                story_check = True
+            types = doc.get("types", [])
+
+            post_check = "post" in types or "reels" in types  # count reels in post bucket
+            story_check = "story" in types
+
             for account in doc.get('accounts', []):
                 story_status = account.get('story_status')
                 post_status = account.get('post_status')
+
                 if story_check:
                     if story_status is True:
                         true_count += 1
@@ -590,6 +651,7 @@ def queue_log(request):
                         false_count += 1
                     else:
                         none_count += 1
+
                 if post_check:
                     if post_status is True:
                         true_count += 1
@@ -597,14 +659,14 @@ def queue_log(request):
                         false_count += 1
                     else:
                         none_count += 1
-            if false_count > 0:
-                Err = True
-            else:
-                Err = False
-            if post_check == True and story_check == True:
+
+            Err = false_count > 0
+
+            if post_check and story_check:
                 odd = 2
             else:
                 odd = 1
+
             total_count = len(doc.get('accounts', []))
             j2 = {
                 "id": id,
@@ -613,15 +675,13 @@ def queue_log(request):
                 "caption": caption,
                 "account_count": total_count,
                 "Error": Err,
-                "true_percentage": int((true_count / (total_count * odd)) * 100)
+                "true_percentage": int((true_count / (max(total_count * odd, 1))) * 100)
             }
             parts_list.append(j2)
 
         return JsonResponse(parts_list, safe=False, status=200)
-
     else:
         return JsonResponse({'message': 'No such a log in db.'}, status=404)
-
 
 # @login_required
 @csrf_exempt
@@ -644,9 +704,9 @@ def queue_d(request):
         for account in doc.get('accounts', []):
             story_status = account.get('story_status')
             post_status = account.get('post_status')
-            post_message = account.get('post_message')  # New
-            story_message = account.get('story_message')  # New
-            active = account.get('active')  # New
+            post_message = account.get('post_message')
+            story_message = account.get('story_message')
+            active = account.get('active')
 
             if story_status is True:
                 true_count += 1
@@ -654,14 +714,16 @@ def queue_d(request):
                 false_count += 1
             else:
                 none_count += 1
+
             if post_status is True:
                 true_count += 1
             elif post_status is False:
                 false_count += 1
             else:
                 none_count += 1
-            account['post_message'] = post_message  # New
-            account['story_message'] = story_message  # New
+
+            account['post_message'] = post_message
+            account['story_message'] = story_message
 
         Err = false_count > 0
         total_count = len(doc.get('accounts', []))
@@ -672,7 +734,7 @@ def queue_d(request):
             "account_count": total_count,
             "caption": caption,
             "Error": Err,
-            "true_percentage": int((true_count / (total_count * 2)) * 100),
+            "true_percentage": int((true_count / (max(total_count * 2, 1))) * 100),
             "accounts": doc.get('accounts', []),
             "active": active
         }
@@ -680,7 +742,6 @@ def queue_d(request):
         return JsonResponse(j2, safe=False)
     else:
         return JsonResponse({'error': 'Document not found'}, status=404)
-
 
 @csrf_exempt
 def queue_retry_data(request):
@@ -691,27 +752,23 @@ def queue_retry_data(request):
     doc = queue_collection.find_one({"id": id})
     if doc.get("active"):
         return JsonResponse({"error": "The task is triggered on the document!"}, status=500)
+
     trigger_status(True, id)
-    gap = doc.get('time_gap')
+    gap = doc.get('time_gap') or "0"
     image = doc.get('path')
     caption = doc.get('caption')
 
     temp_dir = '/tmp'
     image_url = f"http://{SERVER}/image/" + image
 
-    # Download the image from the URL into a temporary file
     response = requests.get(image_url)
     if response.status_code == 200:
-        # Create a temporary directory
         if not os.path.exists(temp_dir):
             os.makedirs(temp_dir)
-
-        # Create a temporary file to store the image data
         temp_image_path = os.path.join(temp_dir, 'temp_image.jpg')
         with open(temp_image_path, 'wb') as temp_image:
             temp_image.write(response.content)
     else:
-        # Handle the case when image download fails
         return JsonResponse({"error": "Failed to download the image."}, status=400)
 
     if doc:
@@ -727,42 +784,52 @@ def queue_retry_data(request):
             if post_status is None or post_status is False:
                 account_issues.append('post')
 
-            if len(account_issues) > 1:  # Ensure that there are issues to report
+            if len(account_issues) > 1:
                 arr.append(account_issues)
 
     queue_retry.delay(arr, id, temp_image_path, gap, caption)
     return JsonResponse({"message": "Task triggered successfully!"})
 
-    # queue.delay(time_gap, accounts, types, caption, temp_image_path, id)
-
-
-@shared_task(
-    bind=True)
+@shared_task(bind=True, acks_late=False)
 def queue_retry(self, status_arr, id, image, gap, caption):
-    gap = int(gap) * 60
+    gap = int(gap or 0) * 60
     for account in status_arr:
         account_len = int(len(account))
-        for username, session in insta:
-            if username == account[0]:
-                for i in range(1, account_len):
-                    if account[i] == "story":
-                        try:
-                            update_status("story", id, account[0], None, "retrying!")
-                            pub("story", id, account[0], session, caption, image)
-                        except Exception:
-                            print('handled')
-                            continue
-                    if account[i] == "post":
-                        try:
-                            update_status("post", id, account[0], None, "retrying!")
-                            pub("post", id, account[0], session, caption, image)
-                        except Exception:
-                            print('handled')
-                            continue
-        sleep(gap)
-    os.remove(image)
-    trigger_status(False, id)
+        session = find_session(account[0])
+        if not session:
+            update_status("story", id, account[0], False, "No session", "")
+            update_status("post", id, account[0], False, "No session", caption)
+            sleep(gap)
+            continue
 
+        for i in range(1, account_len):
+            if account[i] == "story":
+                try:
+                    if not already_published(id, account[0], "story"):
+                        update_status("story", id, account[0], None, "retrying!")
+                        pub("story", id, account[0], session, caption, image)
+                    else:
+                        logger.info(f"[retry skip] story already published id={id} account={account[0]}")
+                except Exception:
+                    logger.exception(f"Retry story failed for {account[0]}")
+            if account[i] == "post":
+                try:
+                    if not already_published(id, account[0], "post"):
+                        update_status("post", id, account[0], None, "retrying!", caption)
+                        pub("post", id, account[0], session, caption, image)
+                    else:
+                        logger.info(f"[retry skip] post already published id={id} account={account[0]}")
+                except Exception:
+                    logger.exception(f"Retry post failed for {account[0]}")
+
+        sleep(gap)
+
+    try:
+        if os.path.exists(image):
+            os.remove(image)
+    except Exception as e:
+        logger.warning(f"Could not remove temp image {image}: {e}")
+    trigger_status(False, id)
 
 # @login_required
 def delete_queue(request, id):
@@ -779,79 +846,97 @@ def delete_queue(request, id):
     else:
         return JsonResponse({'error': 'No such queue in db.'}, status=404)
 
-
 def trigger_status(status, id):
     queue_collection.update_one(
         {"id": id},
-        {
-            "$set": {
-                "active": status
-            }
-        }
+        {"$set": {"active": status}}
     )
-
 
 def description_hashtags(username, mode):
     document = instagram_session_collection.find_one({"username": username})
     if mode == "description":
-        description = document.get("description")
-        return description
+        return document.get("description")
     if mode == "hashtags":
-        hashtags = document.get("hashtags")
-        return hashtags
+        return document.get("hashtags")
     else:
         hashtags = document.get("hashtags")
         description = document.get("description")
         return description, hashtags
 
-
 def run_gpt(account_name, caption, description, hashtags, queue_id):
-    # id of the master prompt- change it to dynamic after demo
+    """
+    Generate an Instagram caption + exactly 15 hashtags.
+
+    Params:
+        account_name (str)
+        caption (str): keywords about the picture/content
+        description (str): account bio/summary (optional context)
+        hashtags (str | list[str]): related hashtags or keywords (optional context)
+        queue_id (Any)
+
+    Returns:
+        str: caption text followed by 15 hashtags (no labels)
+    """
     try:
-        id = 100
-        master_prompt = prompt_collection.find_one({"id": id})
-        master_prompt = master_prompt.get('prompt')
-        # Format the system message with values from the JSON file
-        system_message = master_prompt.format(
-            Account_Name=account_name,
-            ACCOUNT_SUMMARY=description,
-            RELATED_HASHTAGS=hashtags
+        import os
+        from openai import OpenAI
+
+        # Use an existing global client if you've created one elsewhere,
+        # otherwise create a local client.
+        client = globals().get("OPclient") or OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+        # Normalize optional context
+        ctx_hashtags = ", ".join(hashtags) if isinstance(hashtags, (list, tuple)) else (hashtags or "")
+        ctx_description = description or ""
+
+        user_caption_prompt = (
+            "Write a caption for my personal Instagram post.\n"
+            f"Picture keywords: {caption}\n"
+            f"Account context: {account_name}\n"
+            f"About the account: {ctx_description}\n"
+            f"Related hashtags/keywords (context only, not to copy verbatim): {ctx_hashtags}\n\n"
+            "Output requirements:\n"
+            "- Friendly second-person tone (“you”), catchy/viral vibe.\n"
+            "- After the caption text, include exactly 15 hashtags.\n"
+            "- The first 4 hashtags: low-competition AND directly related to the picture keywords.\n"
+            "- The next 7 hashtags: low-competition (relevant).\n"
+            "- The next 4 hashtags: medium-competition.\n"
+            "- The last 2 hashtags: high-competition.\n"
+            "- Do NOT label or explain anything. Output only the caption text and the hashtags.\n"
         )
-        caption = f"""Write a caption for a post of my personal Instagram page. 
-        This particular post contains a picture with the following keywords:{caption}. 
-        Add 15 Hashtags and no more. The first 11 Hashtags of the 15 should be low competitive. 
-        The first 4 of this 15 should be related to the keywords and low competitive. 
-        After this you add 4 medium competitive Hashtags and 2 high competitive Hashtags. 
-        Do not tell which hashtags are what, just add them, so I can copy it perfectly for Instagram. 
-        Do not include anything but the caption.
-        Write the Caption in English and use a friendly "you" form. 
-        The reel should go viral. \nie. 
-        CAPTION: [write caption here]"""
-        completion = OPclient.chat.completions.create(
-            model="gpt-3.5-turbo",
+
+        # Chat Completions (keeps your original structure, updated model/imports)
+        resp = client.chat.completions.create(
+            model=os.getenv("OPENAI_MODEL", "gpt-4o-mini"),
             messages=[
-                {"role": "system", "content": system_message},
-                {"role": "user", "content": caption}
-            ]
+                {
+                    "role": "system",
+                    "content": "You are an expert Instagram caption writer. "
+                               "Return only the caption text followed by 15 hashtags."
+                },
+                {"role": "user", "content": user_caption_prompt},
+            ],
+            temperature=0.8,
         )
-        return completion.choices[0].message.content
+
+        return resp.choices[0].message.content.strip()
+
     except Exception as e:
+        # keep your existing error side-effect
         update_status("post", queue_id, account_name, False, str(e), "")
-        raise Exception('Err')
+        raise
 
 def run_gpt_news(account_name, caption, description, hashtags, queue_id):
-    """
-    Modified news caption generator that works without the news feature.
-    Uses standard caption generation instead.
-    """
     return run_gpt(account_name, caption, description, hashtags, queue_id)
 
 def get_caption(account_name, caption, description, hashtags, queue_id):
-    caption = run_gpt(account_name, caption, description, hashtags, queue_id)
-    caption = caption.replace("Caption:", "").replace("CAPTION:", "").replace('"', "").strip()
-    return caption
+    """
+    Fixed parameter order usage across the code:
+    get_caption(account, caption, description, hashtags, id)
+    """
+    caption_text = run_gpt(account_name, caption, description, hashtags, queue_id)
+    caption_text = caption_text.replace("Caption:", "").replace("CAPTION:", "").replace('"', "").strip()
+    return caption_text
+
 def get_caption_news(account_name, caption, description, hashtags, queue_id):
-    """
-    Modified function that falls back to standard caption generation
-    """
     return get_caption(account_name, caption, description, hashtags, queue_id)
