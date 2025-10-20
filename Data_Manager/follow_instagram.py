@@ -45,44 +45,72 @@ def ensure_collection_exists(db, collection_name):
 def follow_instagram_login(request):
     ensure_collection_exists(db, 'session_extractor')
 
-    if request.method == 'POST':
-        try:
-            body_unicode = request.body.decode('utf-8')            
-            data = json.loads(body_unicode)
-            insta_user = data.get('username')
-            insta_password = data.get('password')
-            # insta_code = data.get('code')
-            two_step_code = data.get('twostepcode')
-            
-            if not insta_user or not insta_password:
-                return JsonResponse({'message': "Username and password are required."}, status=400)            
-            
-            # code_data = {'email_code': insta_code}
-            user = request.user.username
-            current_time = datetime.now()
-            register_time = current_time.strftime("%Y-%m-%d %H:%M:%S")
-            
-            # if code_data:
-            #     # Write code to a temporary JSON file
-            #     with open('email_code.json', 'w') as json_file:
-            #         json.dump(code_data, json_file)
-                    
-            if two_step_code: 
-                login_extractors_twostep(insta_user, insta_password, user, register_time, two_step_code)
-        
-            try:  
-                login_extractors(insta_user, insta_password, user, register_time)
-                return JsonResponse({'message': f"{insta_user} user registered successfully."}, status=200)
-            except Exception as e:
-                return JsonResponse({'message': f"Error while registering account: {str(e)}"}, status=500)
-        except Exception as e:
-            # Log the exception for debugging purposes
-            print(f"Error while registering account: {str(e)}")
-            # Return error response
-            return JsonResponse({'message': f"Error while registering account: {str(e)}"}, status=500)
-    else:
+    if request.method != 'POST':
         return JsonResponse({'message': "Invalid request method. Only POST is allowed."}, status=405)
 
+    # Parse JSON body (or fallback to POST form)
+    try:
+        if request.body:
+            try:
+                data = json.loads(request.body.decode('utf-8'))
+            except json.JSONDecodeError:
+                # Fallback to form-encoded
+                data = request.POST.dict()
+        else:
+            data = request.POST.dict()
+    except Exception as e:
+        return JsonResponse({'message': f"Invalid payload: {str(e)}"}, status=400)
+
+    insta_user = (data.get('username') or '').strip()
+    insta_password = data.get('password') or ''
+    two_step_code = (data.get('twostepcode') or '').strip()
+
+    if not insta_user or not insta_password:
+        return JsonResponse({'message': "Username and password are required."}, status=400)
+
+    user = getattr(request.user, 'username', '') or 'anonymous'
+    register_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _is_two_step_error(msg: str) -> bool:
+        """Heuristic for 2FA-required errors. Adjust to your library’s exact text."""
+        if not msg:
+            return False
+        msg_l = msg.lower()
+        markers = [
+            'two step', '2-step', '2 step',
+            'two-factor', '2fa', 'two factor',
+            'checkpoint', 'challenge required', 'verification code'
+        ]
+        return any(m in msg_l for m in markers)
+
+    # If client already sent a code, try the 2FA path first
+    if two_step_code:
+        try:
+            login_extractors_twostep(insta_user, insta_password, user, register_time, two_step_code)
+            return JsonResponse({'message': f"{insta_user} user registered successfully."}, status=200)
+        except Exception as e:
+            msg = str(e)
+            # Wrong/expired code → keep two_step_required true so frontend stays in code mode
+            if _is_two_step_error(msg):
+                return JsonResponse(
+                    {'message': f"Two-step verification failed: {msg}", 'two_step_required': True},
+                    status=401
+                )
+            return JsonResponse({'message': f"Error while verifying code: {msg}"}, status=500)
+
+    # No code provided → try normal login
+    try:
+        login_extractors(insta_user, insta_password, user, register_time)
+        return JsonResponse({'message': f"{insta_user} user registered successfully."}, status=200)
+    except Exception as e:
+        msg = str(e)
+        # Signal the frontend to ask for a verification code
+        if _is_two_step_error(msg):
+            return JsonResponse(
+                {'message': "Two-step verification required.", 'two_step_required': True},
+                status=401
+            )
+        return JsonResponse({'message': f"Error while registering account: {msg}"}, status=500)
 
 # Function to save session
 def save_session(client, username, password, user, register_time):
@@ -239,10 +267,12 @@ def getting_user_followers(user_id, target_username, follow_number, follow_categ
         print("Getting folowers...")
     
     followers, _ = client.user_followers_gql_chunk(user_id, follow_number)  # Unpack the tuple
+    print(str(followers))
     followers_list = []
     follow_number = int(follow_number)
     for follower_info in followers:
         followers_list.append({
+            'is_private': follower_info.is_private,
             'user_id': follower_info.pk,
             'username': follower_info.username,
             'full_name': follower_info.full_name,

@@ -17,6 +17,7 @@ import logging
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 from rest_framework.decorators import api_view, parser_classes
 from dotenv import load_dotenv
+import requests
 
 # Load environment variables
 load_dotenv()
@@ -181,7 +182,6 @@ def register(request):
                 try:
                     insta = Client()
                     insta.set_proxy(PROXY_URL)
-                    
                     def provide_password(username):
                         return insta_password
                     

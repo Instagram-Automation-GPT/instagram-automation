@@ -31,7 +31,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', DEFAULT_SECRET_KEY)
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'localhost:8000']
+ALLOWED_HOSTS = ['127.0.0.1', 'localhost', 'localhost:8000', '0.0.0.0', '77.37.125.186']
 
 
 # Application definition
@@ -90,7 +90,7 @@ WSGI_APPLICATION = 'Django.wsgi.application'
 load_dotenv()   
 
 # Read environment variables
-MONGO_HOST = os.environ.get("MONGO_HOST", "my-mongo")  # Use container name in Docker
+MONGO_HOST = os.environ.get("MONGO_HOST", "my-mongodb")  # Use container name in Docker
 MONGO_PORT = int(os.environ.get("MONGO_PORT", 27017))  # Use internal port
 MONGO_USERNAME = os.environ.get("MONGO_INITDB_ROOT_USERNAME", "admin")
 MONGO_PASSWORD = os.environ.get("MONGO_INITDB_ROOT_PASSWORD", "secretpassword")
@@ -171,3 +171,4 @@ LOGIN_REDIRECT_URL = "/dashboard/"  # new
 CELERY_BROKER_URL = os.getenv('CELERY_BROKER_URL')
 CELERY_RESULT_BACKEND = os.getenv('CELERY_RESULT_BACKEND')
 # CELERY_EAGER_PROPAGATES_EXCEPTIONS = True
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True

@@ -1,3 +1,5 @@
+// ===== Queue Page JS (latest first) =====
+
 function getCookie(name) {
     let cookieValue = null;
     if (document.cookie && document.cookie !== '') {
@@ -13,6 +15,44 @@ function getCookie(name) {
     return cookieValue;
 }
 
+// Convert various timestamp formats into milliseconds for reliable sorting
+function parseTimestamp(ts) {
+    if (!ts) return 0;
+
+    // Numeric epoch (seconds or milliseconds)
+    const n = Number(ts);
+    if (!Number.isNaN(n)) return n < 1e12 ? n * 1000 : n;
+
+    // "YYYY-MM-DD HHMMSS"
+    let m = String(ts).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2})(\d{2})(\d{2})$/);
+    if (m) {
+        const [, y, mo, d, h, mi, s] = m.map(Number);
+        return new Date(y, mo - 1, d, h, mi, s).getTime();
+    }
+
+    // "YYYY-MM-DD HH:MM:SS" or ISO-like "YYYY-MM-DDTHH:MM:SS"
+    m = String(ts).match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+    if (m) {
+        const [, y, mo, d, h, mi, s] = m.map(Number);
+        return new Date(y, mo - 1, d, h, mi, s).getTime();
+    }
+
+    const d = new Date(ts);
+    return isNaN(d) ? 0 : d.getTime();
+}
+
+// Helper to format "2025-05-10 103853" -> "2025/05/10 10:38:53"
+function formatTimestamp(timestamp) {
+    if (!timestamp) return 'Unknown';
+    const match = String(timestamp).match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2})(\d{2})(\d{2})$/);
+    if (match) {
+        const [_, year, month, day, hour, minute, second] = match;
+        return `${year}/${month}/${day} ${hour}:${minute}:${second}`;
+    }
+    // Fallback: show as-is (or you can use new Date(timestamp).toLocaleString())
+    return timestamp;
+}
+
 function refreshQueue() {
     const queueList = document.getElementById('queueList');
     queueList.innerHTML = '<div class="col-span-full flex justify-center items-center py-8"><div class="queue-loading-spinner"></div></div>';
@@ -20,46 +60,51 @@ function refreshQueue() {
     fetch('/queue_log/')
         .then(response => response.json())
         .then(data => {
-            queueList.innerHTML = '';
-            if (data.length === 0) {
+            if (!Array.isArray(data) || data.length === 0) {
                 queueList.innerHTML = '<div class="col-span-full text-center text-gray-500 py-8">No items in queue</div>';
                 return;
             }
 
-            // Loop through each queue item and add it to the grid
+            // Sort newest first by timestamp (then by id if equal/missing)
+            data.sort((a, b) => {
+                const tb = parseTimestamp(b.timestamp);
+                const ta = parseTimestamp(a.timestamp);
+                if (tb !== ta) return tb - ta;
+                return (Number(b.id) || 0) - (Number(a.id) || 0);
+            });
+
+            // Clear the grid before rendering
+            queueList.innerHTML = '';
+
+            // Render items
             data.forEach(item => {
-                // Determine status based on true_percentage and Error
                 const isComplete = item.true_percentage === 100;
                 const hasError = item.Error === true;
                 let status = 'pending';
-                
-                if (isComplete) {
-                    status = 'completed';
-                } else if (hasError) {
-                    status = 'failed';
-                } else if (item.true_percentage > 0) {
-                    status = 'processing';
-                }
-                
+                if (isComplete) status = 'completed';
+                else if (hasError) status = 'failed';
+                else if ((item.true_percentage || 0) > 0) status = 'processing';
+
                 const statusClass = getStatusClass(status);
                 const statusText = getStatusText(status);
-                
-                // Format timestamp for display
+
                 const formattedDate = formatTimestamp(item.timestamp);
-                
-                // Create media preview based on file extension
-                const fileExtension = item.image.split('.').pop().toLowerCase();
-                const isVideo = fileExtension === 'mp4' || fileExtension === 'mov';
-                const mediaPreview = isVideo ? 
-                    `<div class="media-preview video-preview">
-                        <i class="fas fa-play-circle"></i>
-                        <span>Video</span>
-                    </div>` : 
-                    `<div class="media-preview image-preview">
-                        <img src="/image/${item.image}" alt="Preview" onerror="this.onerror=null; this.src='/static/images/placeholder.jpg';">
-                    </div>`;
-                
-                // Create the queue item element
+
+                const imgName = item.image || '';
+                const fileExtension = imgName.split('.').pop().toLowerCase();
+                const isVideo = ['mp4', 'mov', 'webm'].includes(fileExtension);
+
+                const safeSrc = `/image/${encodeURIComponent(imgName)}`;
+
+                const mediaPreview = isVideo
+                    ? `<div class="media-preview video-preview">
+                          <i class="fas fa-play-circle"></i>
+                          <span>Video</span>
+                       </div>`
+                    : `<div class="media-preview image-preview">
+                          <img src="${safeSrc}" alt="Preview" onerror="this.onerror=null; this.src='/static/images/placeholder.jpg';">
+                       </div>`;
+
                 const queueItem = document.createElement('div');
                 queueItem.className = 'queue-item';
                 queueItem.innerHTML = `
@@ -87,7 +132,7 @@ function refreshQueue() {
                             <span class="queue-item-label">Progress</span>
                             <div class="flex items-center gap-2">
                                 <div class="flex-grow bg-gray-200 rounded-full h-2">
-                                    <div class="bg-blue-600 h-2 rounded-full" style="width: ${item.true_percentage || 0}%"></div>
+                                    <div class="bg-blue-600 h-2 rounded-full" style="width: ${(item.true_percentage || 0)}%"></div>
                                 </div>
                                 <span class="queue-item-value whitespace-nowrap">${item.true_percentage || 0}%</span>
                             </div>
@@ -105,8 +150,6 @@ function refreshQueue() {
                         </button>
                     </div>
                 `;
-                
-                // Add the item to the grid
                 queueList.appendChild(queueItem);
             });
         })
@@ -118,37 +161,28 @@ function refreshQueue() {
 
 function getStatusClass(status) {
     switch (status) {
-        case 'pending':
-            return 'status-pending';
-        case 'processing':
-            return 'status-processing';
-        case 'completed':
-            return 'status-completed';
-        case 'failed':
-            return 'status-failed';
-        default:
-            return 'status-pending';
+        case 'pending': return 'status-pending';
+        case 'processing': return 'status-processing';
+        case 'completed': return 'status-completed';
+        case 'failed': return 'status-failed';
+        default: return 'status-pending';
     }
 }
 
 function getStatusText(status) {
     switch (status) {
-        case 'pending':
-            return 'Pending';
-        case 'processing':
-            return 'Processing';
-        case 'completed':
-            return 'Completed';
-        case 'failed':
-            return 'Failed';
-        default:
-            return 'Unknown';
+        case 'pending': return 'Pending';
+        case 'processing': return 'Processing';
+        case 'completed': return 'Completed';
+        case 'failed': return 'Failed';
+        default: return 'Unknown';
     }
 }
 
+// Optional generic formatter (unused in rendering but kept if needed elsewhere)
 function formatDate(dateString) {
     const date = new Date(dateString);
-    return date.toLocaleString();
+    return isNaN(date) ? String(dateString) : date.toLocaleString();
 }
 
 function retryItem(itemId) {
@@ -177,15 +211,11 @@ function retryItem(itemId) {
 }
 
 function deleteItem(itemId) {
-    if (!confirm('Are you sure you want to delete this item?')) {
-        return;
-    }
+    if (!confirm('Are you sure you want to delete this item?')) return;
 
     fetch(`/delete_queue/${itemId}/`, {
         method: 'GET',
-        headers: {
-            'X-CSRFToken': getCookie('csrftoken')
-        }
+        headers: { 'X-CSRFToken': getCookie('csrftoken') }
     })
     .then(response => {
         if (response.ok) {
@@ -203,21 +233,7 @@ function deleteItem(itemId) {
     });
 }
 
-// Helper function to format timestamp like "2025-05-10 103853" to readable date
-function formatTimestamp(timestamp) {
-    if (!timestamp) return 'Unknown';
-    
-    // Check if the timestamp is in the expected format
-    const match = timestamp.match(/^(\d{4})-(\d{2})-(\d{2}) (\d{2})(\d{2})(\d{2})$/);
-    if (match) {
-        const [_, year, month, day, hour, minute, second] = match;
-        return `${year}/${month}/${day} ${hour}:${minute}:${second}`;
-    }
-    
-    return timestamp; // Return as is if not in expected format
-}
-
 // Initialize queue on page load
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     refreshQueue();
 });
